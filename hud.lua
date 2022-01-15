@@ -1,14 +1,14 @@
 script_name("Hud")
 script_author("akacross")
-script_version("0.4.8.50")
 script_url("https://akacross.net/")
+
+local script_version = 0.4
 
 if getMoonloaderVersion() >= 27 then
 	require 'libstd.deps' {
 	   'fyp:mimgui',
 	   'fyp:samp-lua', 
 	   'fyp:fa-icons-4',
-	   'donhomka:mimgui-addons',
 	   'donhomka:extensions-lite'
 	}
 end
@@ -17,8 +17,6 @@ require"lib.moonloader"
 require"lib.sampfuncs"
 require 'extensions-lite'
 
-local path = getWorkingDirectory() .. '\\config\\' 
-local cfg = path .. 'hud.ini' 
 local imgui, ffi = require 'mimgui', require 'ffi'
 local new, str, sizeof = imgui.new, ffi.string, ffi.sizeof
 local ped, h = playerPed, playerHandle
@@ -35,6 +33,15 @@ local mimgui_addons = require 'mimgui_addons'
 local flag = require ('moonloader').font_flag
 local faicons = require 'fa-icons'
 local ti = require 'tabler_icons'
+local dlstatus = require('moonloader').download_status
+local https = require 'ssl.https'
+local path = getWorkingDirectory() .. '/config/' 
+local iconspath = getWorkingDirectory() .. '/resource/icons/' 
+local cfg = path .. 'hud.ini' 
+local script_path = thisScript().path
+local script_url = "https://raw.githubusercontent.com/akacross/hud/main/hud.lua"
+local update_url = "https://raw.githubusercontent.com/akacross/hud/main/hud.txt"
+local icons_url = "https://raw.githubusercontent.com/akacross/hud/main/resource/icons/"
 
 ffi.cdef
 [[
@@ -46,6 +53,7 @@ local mainc = imgui.ImVec4(0.92, 0.27, 0.92, 1.0)
 local menu = new.bool(false)
 local mid = 1
 local move = false
+local update = false
 
 local value = {
 	{0},{0},{0},{0},{0},{0,0,0},{0,0},{0,0,0,0,0,0,0,0,0,0,0}
@@ -62,6 +70,7 @@ local blank = {}
 local hud = {
 	toggle = true,
 	autosave = false,
+	autoupdate = false,
 	tog = {
 		{true,true,false},
 		{true,true,true},
@@ -265,7 +274,7 @@ imgui.OnFrame(function() return menu[0] end,
 function()
 	local center = imgui.ImVec2(imgui.GetIO().DisplaySize.x / 2, imgui.GetIO().DisplaySize.y / 2)
 	imgui.SetNextWindowPos(center, imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
-	imgui.Begin(ti.ICON_SETTINGS .. string.format("%s Settings - %s[%d] - Version: %s", script.this.name, assets.mnames[mid], mid, script.this.version), menu, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.MenuBar)
+	imgui.Begin(ti.ICON_SETTINGS .. string.format("%s Settings - %s[%d] - Version: %s", script.this.name, assets.mnames[mid], mid, script_version), menu, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.MenuBar)
 	
 		imgui.BeginMenuBar()
 			if imgui.BeginMenu('Elements') then
@@ -294,6 +303,20 @@ function()
 			if imgui.Button(u8'Save') then saveIni() end 
 			imgui.SameLine()
 			if imgui.Button(u8'Reload') then loadIni() end
+			imgui.SameLine()
+			if imgui.Button(ti.ICON_REFRESH .. 'Update') then
+				update_script()
+			end 
+			if imgui.IsItemHovered() then
+				imgui.SetTooltip('Update the script')
+			end
+			imgui.SameLine()
+			if imgui.Checkbox('##autoupdate', new.bool(hud.autoupdate)) then 
+				hud.autoupdate = not hud.autoupdate 
+			end
+			if imgui.IsItemHovered() then
+				imgui.SetTooltip('Auto-Update')
+			end
 		imgui.EndGroup()
 	
 		if mid >= 1 and mid <= 7 then 
@@ -652,15 +675,48 @@ function()
 	imgui.End()
 end)
 
+function update_script()
+	update_text = https.request(update_url)
+	update_version = update_text:match("version: (.+)")
+	if tonumber(update_version) > script_version then
+		sampAddChatMessage(string.format("{ABB2B9}[%s]{FFFFFF} New version found! The update is in progress..", script.this.name), -1)
+		downloadUrlToFile(script_url, script_path, function(id, status)
+			if status == dlstatus.STATUS_ENDDOWNLOADDATA then
+				sampAddChatMessage(string.format("{ABB2B9}[%s]{FFFFFF} The update was successful!", script.this.name), -1)
+				blankIni()
+				update = true
+			end
+		end)
+	end
+end
+
+function icons_script()
+	for i = 0, 48 do
+		if not doesFileExist(iconspath .. i..'.png') then
+			downloadUrlToFile(icons_url .. i..'.png', iconspath .. i..'.png', function(id, status)
+				if status == dlstatus.STATUS_ENDDOWNLOADDATA then
+					print(i..'.png' .. ' Downloaded')
+				end
+			end)
+		end
+	end
+end
+
 function main() 
 	blank = table.deepcopy(hud)
 	if not doesDirectoryExist(path) then createDirectory(path) end
 	if doesFileExist(cfg) then loadIni() else blankIni() end
+	
+	createfonts()
+	icons_script()
+	displayHud(false) 
+	for i = 0, 48 do assets.wid[i] = renderLoadTextureFromFile(iconspath..i..'.png') end 
 
-	for i = 0, 48 do assets.wid[i] = renderLoadTextureFromFile('moonloader/resource/icons/'..i..'.png') end 
-	displayHud(false)
-	createfonts() 
-	setmaxhp()
+	repeat wait(0) until isSampAvailable()
+	
+	if hud.autoupdate then
+		update_script()
+	end
 
 	if hud.radar.compass then
 		assets.compass[1] = addSpriteBlipForCoord(0.0, 999999.0, 23.0, 24) --  N
@@ -669,10 +725,10 @@ function main()
 		assets.compass[4] = addSpriteBlipForCoord(0.0, -999999.0, 23.0, 38) -- E
 	end
 
-	repeat wait(0) until isSampAvailable()
 	sampRegisterChatCommand("hud", function() menu[0] = not menu[0] end)
 	sampfuncsLog("(Hud: /hud)")
 	
+	setmaxhp()
 	hztextdraws()
 	
 	lua_thread.create(function() 
