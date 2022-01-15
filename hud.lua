@@ -725,7 +725,13 @@ function main()
 		assets.compass[4] = addSpriteBlipForCoord(0.0, -999999.0, 23.0, 38) -- E
 	end
 
-	sampRegisterChatCommand("hud", function() menu[0] = not menu[0] end)
+	sampRegisterChatCommand("hud", function() 
+		if not update then
+			menu[0] = not menu[0] 
+		else
+			sampAddChatMessage(string.format("{ABB2B9}[%s]{FFFFFF} The update is in progress.. Please wait..", script.this.name), -1)
+		end
+	end)
 	sampfuncsLog("(Hud: /hud)")
 	
 	setmaxhp()
@@ -875,6 +881,14 @@ function main()
 	end)
 	
 	while true do wait(1)		
+		if update then
+			menu[0] = false
+			lua_thread.create(function() 
+				wait(20000) 
+				thisScript():reload()
+				update = false
+			end)
+		end
 		hudmove()
 		changeRadarPosAndSize(hud.radar.pos[1], hud.radar.pos[2], hud.radar.size[1], hud.radar.size[2])
         changeRadarColor(hud.radar.color)
