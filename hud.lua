@@ -2,7 +2,7 @@ script_name("Hud")
 script_author("akacross")
 script_url("https://akacross.net/")
 
-local script_version = 0.6
+local script_version = 0.7
 
 if getMoonloaderVersion() >= 27 then
 	require 'libstd.deps' {
@@ -746,135 +746,137 @@ function main()
 	
 	lua_thread.create(function()
 		while true do wait(15)
-			_, id = sampGetPlayerIdByCharHandle(ped)
-			local hp, weap, color, vehhp, turfname, localtime, servertime, speed, carName, badge = sampGetPlayerHealth(id), getCurrentCharWeapon(ped), sampGetPlayerColor(id), 0, '', '', '', '', '', ''
+			local res, id = sampGetPlayerIdByCharHandle(ped)
+			if res then
+				local hp, weap, color, vehhp, turfname, localtime, servertime, speed, carName, badge = getCharHealth(ped), getCurrentCharWeapon(ped), sampGetPlayerColor(id), 0, '', '', '', '', '', ''
 
-			for k, v in pairs(hud.serverhp) do if hp >= v then hp = hp - v end end 
-			
-			if isCharInAnyCar(ped) then 
-				local vehid = storeCarCharIsInNoSave(ped) 
-				local model = getCarModel(vehid)
-				vehhp = getCarHealth(vehid) 
-				if has_value(assets.vehid, getCarModel(vehid)) and hud.tog[4][4] then 
-					hud.maxvalue[4] = 2500 
-				else 
-					hud.maxvalue[4] = 1000 
+				for k, v in pairs(hud.serverhp) do if hp >= v then hp = hp - v end end 
+				
+				if isCharInAnyCar(ped) then 
+					local vehid = storeCarCharIsInNoSave(ped) 
+					local model = getCarModel(vehid)
+					vehhp = getCarHealth(vehid) 
+					if has_value(assets.vehid, getCarModel(vehid)) and hud.tog[4][4] then 
+						hud.maxvalue[4] = 2500 
+					else 
+						hud.maxvalue[4] = 1000 
+					end
+					carName = getVehicleName(model)
+					speed = math.ceil(getCarSpeed(vehid)*2.98) .." MPH"
 				end
-				carName = getVehicleName(model)
-				speed = math.ceil(getCarSpeed(vehid)*2.98) .." MPH"
-			end
-			
-			showfps = (hud.tog[8][5][2] and 'FPS: ' or '')..fps
-			localtime = os.date(hud.tog[8][2][2] and '%I:%M:%S'or '%H:%M:%S')
-			
-			local r, g, b = hex2rgb(color)
-			color = join_argb_int(255, r, g, b)
-			for k, v in pairs(assets.badge) do 
-				if color == v[1] then 
-					hud.color[8][11] = v[1]
-					badge = v[2]
-				end 
-			end
-			
-			for i = 1, 3000 do
-				if sampTextdrawIsExists(i) then
-					local posX, posY = sampTextdrawGetPos(i)					
-					local _, _, sizeX, sizeY = sampTextdrawGetBoxEnabledColorAndSize(i)
-					if posX == 577 and posY == 24 then
-						servertime = sampTextdrawGetString(i)
-					elseif posX == 86 and sizeX == 1280 and sizeY == 1280 then
-						turfname = sampTextdrawGetString(i)
-						local _, _, color = sampTextdrawGetLetterSizeAndColor(i)
-						hud.color[8][8] = color
+				
+				showfps = (hud.tog[8][5][2] and 'FPS: ' or '')..fps
+				localtime = os.date(hud.tog[8][2][2] and '%I:%M:%S'or '%H:%M:%S')
+				
+				local r, g, b = hex2rgb(color)
+				color = join_argb_int(255, r, g, b)
+				for k, v in pairs(assets.badge) do 
+					if color == v[1] then 
+						hud.color[8][11] = v[1]
+						badge = v[2]
+					end 
+				end
+				
+				for i = 1, 3000 do
+					if sampTextdrawIsExists(i) then
+						local posX, posY = sampTextdrawGetPos(i)					
+						local _, _, sizeX, sizeY = sampTextdrawGetBoxEnabledColorAndSize(i)
+						if posX == 577 and posY == 24 then
+							servertime = sampTextdrawGetString(i)
+						elseif posX == 86 and sizeX == 1280 and sizeY == 1280 then
+							turfname = sampTextdrawGetString(i)
+							local _, _, color = sampTextdrawGetLetterSizeAndColor(i)
+							hud.color[8][8] = color
+						end
 					end
 				end
-			end
-			
-			if menu[0] then 
-				value = {{100},{50},{100},{1000},{100},{24,formatammo(50000,7),'Desert Eagle'},{6,formatmoney(1000000)},{'Player_Name', 'Local-Time', 'Server-Time', 'Ping', showfps, 'Direction', 'Location', 'Turf', 'Vehicle Speed', 'Vehicle Name', 'Badge'}}
-			else 
-				if spec.state and spec.playerid ~= -1 and sampIsPlayerConnected(spec.playerid) then
-					res, pid = sampGetCharHandleBySampPlayerId (spec.playerid)
-					if res then
-						local vehhp, weap, color, speed, carName, badge = 0, getCurrentCharWeapon(pid), sampGetPlayerColor(spec.playerid), '', '', ''
-						if isCharInAnyCar(pid) then 
-							local vehid = storeCarCharIsInNoSave(pid) 
-							local model = getCarModel(vehid)
-							vehhp = getCarHealth(vehid) 
-							if has_value(assets.vehid, getCarModel(vehid)) and hud.tog[4][4] then 
-								hud.maxvalue[4] = 2500 
-							else 
-								hud.maxvalue[4] = 1000 
+				
+				if menu[0] then 
+					value = {{100},{50},{100},{1000},{100},{24,formatammo(50000,7),'Desert Eagle'},{6,formatmoney(1000000)},{'Player_Name', 'Local-Time', 'Server-Time', 'Ping', showfps, 'Direction', 'Location', 'Turf', 'Vehicle Speed', 'Vehicle Name', 'Badge'}}
+				else 
+					if spec.state and spec.playerid ~= -1 and sampIsPlayerConnected(spec.playerid) then
+						res, pid = sampGetCharHandleBySampPlayerId (spec.playerid)
+						if res then
+							local vehhp, weap, color, speed, carName, badge = 0, getCurrentCharWeapon(pid), sampGetPlayerColor(spec.playerid), '', '', ''
+							if isCharInAnyCar(pid) then 
+								local vehid = storeCarCharIsInNoSave(pid) 
+								local model = getCarModel(vehid)
+								vehhp = getCarHealth(vehid) 
+								if has_value(assets.vehid, getCarModel(vehid)) and hud.tog[4][4] then 
+									hud.maxvalue[4] = 2500 
+								else 
+									hud.maxvalue[4] = 1000 
+								end
+								carName = getVehicleName(model)
+								speed = math.ceil(getCarSpeed(vehid)*2.98) .." MPH"
 							end
-							carName = getVehicleName(model)
-							speed = math.ceil(getCarSpeed(vehid)*2.98) .." MPH"
-						end
-						
-						local r, g, b = hex2rgb(color)
-						color = join_argb_int(255, r, g, b)
-						for k, v in pairs(assets.badge) do 
-							if color == v[1] then 
-								hud.color[8][11] = v[1]
-								badge = v[2]
-							end 
-						end
-						
+							
+							local r, g, b = hex2rgb(color)
+							color = join_argb_int(255, r, g, b)
+							for k, v in pairs(assets.badge) do 
+								if color == v[1] then 
+									hud.color[8][11] = v[1]
+									badge = v[2]
+								end 
+							end
+							
+							value = {
+								{sampGetPlayerHealth(spec.playerid)},
+								{sampGetPlayerArmor(spec.playerid)},
+								{0},
+								{vehhp},
+								{0},
+								{weap, formatammo(getAmmoInCharWeapon(pid, weap), getAmmoInClip(pid, weap)),weapons.names[weap]},
+								{0,''},
+								{
+									string.format("%s (%d)", sampGetPlayerNickname(spec.playerid), spec.playerid),
+									localtime,
+									servertime,
+									(hud.tog[8][4][2] and 'Ping: ' or '')..sampGetPlayerPing(spec.playerid),
+									showfps,
+									getdirection(pid),
+									getPlayerZoneName(), 
+									turfname, 
+									speed,
+									carName,
+									badge
+								}
+							}
+						end	
+					else
 						value = {
-							{sampGetPlayerHealth(spec.playerid)},
-							{sampGetPlayerArmor(spec.playerid)},
-							{0},
+							{hp},
+							{sampGetPlayerArmor(id)},
+							{getSprintLevel()},
 							{vehhp},
-							{0},
-							{weap, formatammo(getAmmoInCharWeapon(pid, weap), getAmmoInClip(pid, weap)),weapons.names[weap]},
-							{0,''},
+							{getWaterLevel()},
 							{
-								string.format("%s (%d)", sampGetPlayerNickname(spec.playerid), spec.playerid),
+								weap,
+								formatammo(
+									getAmmoInCharWeapon(ped, weap), 
+									getAmmoInClip(ped, weap)
+								),
+								weapons.names[weap]
+							},
+							{
+								getWantedLevel(),
+								formatmoney(getPlayerMoney(h))
+							},
+							{
+								string.format("%s (%d)", sampGetPlayerNickname(id), id),
 								localtime,
 								servertime,
-								(hud.tog[8][4][2] and 'Ping: ' or '')..sampGetPlayerPing(spec.playerid),
+								(hud.tog[8][4][2] and 'Ping: ' or '')..sampGetPlayerPing(id),
 								showfps,
-								getdirection(pid),
+								getdirection(ped),
 								getPlayerZoneName(), 
 								turfname, 
-								speed,
-								carName,
+								speed, 
+								carName, 
 								badge
 							}
 						}
-					end	
-				else
-					value = {
-						{hp},
-						{sampGetPlayerArmor(id)},
-						{getSprintLevel()},
-						{vehhp},
-						{getWaterLevel()},
-						{
-							weap,
-							formatammo(
-								getAmmoInCharWeapon(ped, weap), 
-								getAmmoInClip(ped, weap)
-							),
-							weapons.names[weap]
-						},
-						{
-							getWantedLevel(),
-							formatmoney(getPlayerMoney(h))
-						},
-						{
-							string.format("%s (%d)", sampGetPlayerNickname(id), id),
-							localtime,
-							servertime,
-							(hud.tog[8][4][2] and 'Ping: ' or '')..sampGetPlayerPing(id),
-							showfps,
-							getdirection(ped),
-							getPlayerZoneName(), 
-							turfname, 
-							speed, 
-							carName, 
-							badge
-						}
-					}
+					end
 				end
 			end
 		end
