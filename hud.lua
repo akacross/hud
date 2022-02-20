@@ -2,7 +2,8 @@ script_name("Hud")
 script_author("akacross")
 script_url("https://akacross.net/")
 
-local script_version = 0.7
+local script_version = 0.8
+local script_version_text = '0.8'
 
 if getMoonloaderVersion() >= 27 then
 	require 'libstd.deps' {
@@ -43,28 +44,13 @@ local script_url = "https://raw.githubusercontent.com/akacross/hud/main/hud.lua"
 local update_url = "https://raw.githubusercontent.com/akacross/hud/main/hud.txt"
 local icons_url = "https://raw.githubusercontent.com/akacross/hud/main/resource/icons/"
 
-ffi.cdef
-[[
-    void *malloc(size_t size);
-    void free(void *ptr);
-]]
-
-local mainc = imgui.ImVec4(0.92, 0.27, 0.92, 1.0)
-local menu = new.bool(false)
-local mid = 1
-local move = false
-local update = false
-
-local value = {
-	{0},{0},{0},{0},{0},{0,0,0},{0,0},{0,0,0,0,0,0,0,0,0,0,0}
-}
-
-local spec = {
-	playerid = -1, 
-	state = false
-}
-
-local debug_tog = false
+local function loadIconicFont(fontSize, min, max, fontdata)
+    local config = imgui.ImFontConfig()
+    config.MergeMode = true
+    config.PixelSnapH = true
+    local iconRanges = imgui.new.ImWchar[3](min, max, 0)
+    imgui.GetIO().Fonts:AddFontFromMemoryCompressedBase85TTF(fontdata, fontSize, config, iconRanges)
+end
 
 local blank = {}
 local hud = {
@@ -82,21 +68,15 @@ local hud = {
 		{{true,false},{true,true},{true},{true,true},{true,true},{true,true},{true},{true},{true},{true},{true}}
 	},
 	pos = {
-		{
-			name = 'Hud',
-			x = 525,
-			y = 234,
-			move = false
-		},
-		{
-			name = 'Misc',
-			x = 500,
-			y = 500,
-			move = false
-		},
+		{x = 525, y = 234, name = "Hud", move = false},
+		{x = 525, y = 234, name = "Radar", move = false},
+		{x = 525, y = 234, name = "Time", move = false},
+		{x = 525, y = 234, name = "FPS/Ping", move = false},
+		{x = 525, y = 234, name = "Vehicle", move = false},
+		{x = 525, y = 234, name = "Name", move = false}
 	},
 	move = {
-		{1,1},{1,1},{1,1},{1,1},{1,1},{1,1,1},{1,1},{2,2,2,2,2,2,2,2,2,2,2}
+		{1,1},{1,1},{1,1},{1,1},{1,1},{1,1,1},{1,1},{6,3,3,4,4,2,2,2,5,5,2}
 	},
 	offx = {
 		{120,183},{120,183},{120,183},{120,183},{120,183},{-1.5,97,56.4},{115,248.6},{0,0,0,0,0,0,0,0,0,0,0}
@@ -149,6 +129,23 @@ local hud = {
 	}
 }
 
+local mainc = imgui.ImVec4(0.92, 0.27, 0.92, 1.0)
+local menu = new.bool(false)
+local mid = 1
+local move = false
+local update = false
+
+local value = {
+	{0},{0},{0},{0},{0},{0,0,0},{0,0},{0,0,0,0,0,0,0,0,0,0,0}
+}
+
+local spec = {
+	playerid = -1, 
+	state = false
+}
+
+local debug_tog = false
+
 local assets = {
 	temp_pos = {x = 0, y = 0},
 	wid = {},
@@ -186,84 +183,18 @@ local selected = {
 	{false,false},
 	{false,false,false,false,false,false,false,false,false,false,false}
 }
-
-function apply_custom_style()
-   local style = imgui.GetStyle()
-   local colors = style.Colors
-   local clr = imgui.Col
-   local ImVec4 = imgui.ImVec4
-   style.WindowRounding = 1.5
-   style.WindowTitleAlign = imgui.ImVec2(0.5, 0.5)
-   style.FrameRounding = 1.0
-   style.ItemSpacing = imgui.ImVec2(4.0, 4.0)
-   style.ScrollbarSize = 13.0
-   style.ScrollbarRounding = 0
-   style.GrabMinSize = 8.0
-   style.GrabRounding = 1.0
-   style.WindowBorderSize = 0.0
-   style.WindowPadding = imgui.ImVec2(4.0, 4.0)
-   style.FramePadding = imgui.ImVec2(2.5, 3.5)
-   style.ButtonTextAlign = imgui.ImVec2(0.5, 0.35)
  
-   colors[clr.Text]                   = ImVec4(1.00, 1.00, 1.00, 1.00)
-   colors[clr.TextDisabled]           = ImVec4(0.7, 0.7, 0.7, 1.0)
-   colors[clr.WindowBg]               = ImVec4(0.07, 0.07, 0.07, 1.0)
-   colors[clr.PopupBg]                = ImVec4(0.08, 0.08, 0.08, 0.94)
-   colors[clr.Border]                 = ImVec4(mainc.x, mainc.y, mainc.z, 0.4)
-   colors[clr.BorderShadow]           = ImVec4(0.00, 0.00, 0.00, 0.00)
-   colors[clr.FrameBg]                = ImVec4(mainc.x, mainc.y, mainc.z, 0.7)
-   colors[clr.FrameBgHovered]         = ImVec4(mainc.x, mainc.y, mainc.z, 0.4)
-   colors[clr.FrameBgActive]          = ImVec4(mainc.x, mainc.y, mainc.z, 0.9)
-   colors[clr.TitleBg]                = ImVec4(mainc.x, mainc.y, mainc.z, 1.0)
-   colors[clr.TitleBgActive]          = ImVec4(mainc.x, mainc.y, mainc.z, 1.0)
-   colors[clr.TitleBgCollapsed]       = ImVec4(mainc.x, mainc.y, mainc.z, 0.79)
-   colors[clr.MenuBarBg]              = ImVec4(0.14, 0.14, 0.14, 1.00)
-   colors[clr.ScrollbarBg]            = ImVec4(0.02, 0.02, 0.02, 0.53)
-   colors[clr.ScrollbarGrab]          = ImVec4(mainc.x, mainc.y, mainc.z, 0.8)
-   colors[clr.ScrollbarGrabHovered]   = ImVec4(0.41, 0.41, 0.41, 1.00)
-   colors[clr.ScrollbarGrabActive]    = ImVec4(0.51, 0.51, 0.51, 1.00)
-   colors[clr.CheckMark]              = ImVec4(mainc.x + 0.13, mainc.y + 0.13, mainc.z + 0.13, 1.00)
-   colors[clr.SliderGrab]             = ImVec4(0.28, 0.28, 0.28, 1.00)
-   colors[clr.SliderGrabActive]       = ImVec4(0.35, 0.35, 0.35, 1.00)
-   colors[clr.Button]                 = ImVec4(mainc.x, mainc.y, mainc.z, 0.8)
-   colors[clr.ButtonHovered]          = ImVec4(mainc.x, mainc.y, mainc.z, 0.63)
-   colors[clr.ButtonActive]           = ImVec4(mainc.x, mainc.y, mainc.z, 1.0)
-   colors[clr.Header]                 = ImVec4(mainc.x, mainc.y, mainc.z, 0.6)
-   colors[clr.HeaderHovered]          = ImVec4(mainc.x, mainc.y, mainc.z, 0.43)
-   colors[clr.HeaderActive]           = ImVec4(mainc.x, mainc.y, mainc.z, 0.8)
-   colors[clr.Separator]              = colors[clr.Border]
-   colors[clr.SeparatorHovered]       = ImVec4(0.26, 0.59, 0.98, 0.78)
-   colors[clr.SeparatorActive]        = ImVec4(0.26, 0.59, 0.98, 1.00)
-   colors[clr.ResizeGrip]             = ImVec4(mainc.x, mainc.y, mainc.z, 0.8)
-   colors[clr.ResizeGripHovered]      = ImVec4(mainc.x, mainc.y, mainc.z, 0.63)
-   colors[clr.ResizeGripActive]       = ImVec4(mainc.x, mainc.y, mainc.z, 1.0)
-   colors[clr.PlotLines]              = ImVec4(0.61, 0.61, 0.61, 1.00)
-   colors[clr.PlotLinesHovered]       = ImVec4(1.00, 0.43, 0.35, 1.00)
-   colors[clr.PlotHistogram]          = ImVec4(0.90, 0.70, 0.00, 1.00)
-   colors[clr.PlotHistogramHovered]   = ImVec4(1.00, 0.60, 0.00, 1.00)
-   colors[clr.TextSelectedBg]         = ImVec4(0.26, 0.59, 0.98, 0.35)
- end
+ ffi.cdef
+[[
+    void *malloc(size_t size);
+    void free(void *ptr);
+]]
 
 imgui.OnInitialize(function()
 	apply_custom_style() -- apply custom style
-	local defGlyph = imgui.GetIO().Fonts.ConfigData.Data[0].GlyphRanges
-	imgui.GetIO().Fonts:Clear() -- clear the fonts
-	local font_config = imgui.ImFontConfig() -- each font has its own config
-	font_config.SizePixels = 14.0;
-	font_config.GlyphExtraSpacing.x = 0.1
-	-- main font
-	local def = imgui.GetIO().Fonts:AddFontFromFileTTF(getFolderPath(0x14) .. '\\arialbd.ttf', font_config.SizePixels, font_config, defGlyph)
-   
-	local config = imgui.ImFontConfig()
-	config.MergeMode = true
-	config.PixelSnapH = true
-	config.FontDataOwnedByAtlas = false
-	config.GlyphOffset.y = 1.0 -- offset 1 pixel from down
-	local fa_glyph_ranges = new.ImWchar[3]({ faicons.min_range, faicons.max_range, 0 })
-	local iconRanges = imgui.new.ImWchar[3](ti.min_range, ti.max_range, 0)
-	-- icons
-	local faicon = imgui.GetIO().Fonts:AddFontFromMemoryCompressedBase85TTF(faicons.get_font_data_base85(), font_config.SizePixels, config, fa_glyph_ranges)
-    imgui.GetIO().Fonts:AddFontFromMemoryCompressedBase85TTF(ti.get_font_data_base85(), font_config.SizePixels, config, iconRanges)
+
+	loadIconicFont(18, ti.min_range, ti.max_range, ti.get_font_data_base85())
+	loadIconicFont(14, faicons.min_range, faicons.max_range, faicons.get_font_data_base85())
 
 	imgui.GetIO().ConfigWindowsMoveFromTitleBarOnly = true
 	imgui.GetIO().IniFilename = nil
@@ -274,53 +205,187 @@ imgui.OnFrame(function() return menu[0] end,
 function()
 	local center = imgui.ImVec2(imgui.GetIO().DisplaySize.x / 2, imgui.GetIO().DisplaySize.y / 2)
 	imgui.SetNextWindowPos(center, imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
-	imgui.Begin(ti.ICON_SETTINGS .. string.format("%s Settings - %s[%d] - Version: %s", script.this.name, assets.mnames[mid], mid, script_version), menu, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.MenuBar)
-	
-		imgui.BeginMenuBar()
-			if imgui.BeginMenu('Elements') then
-				for i = 1, 7 do 
-					if imgui.MenuItemBool(string.format("%s[%d]", assets.mnames[i], i)) then
-						mid = i 
-					end
-				end
-				imgui.EndMenu()
-			end
-			for i = 8, 10 do 
-				if imgui.MenuItemBool(u8(assets.mnames[i])) then
-					mid = i 
-				end
-			end
-		imgui.EndMenuBar()
+	imgui.Begin(ti.ICON_SETTINGS .. string.format("%s Settings - Version: %s", script.this.name, script_version), menu, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize)
 		
-		if imgui.Checkbox(u8(script.this.name), new.bool(hud.toggle)) then hud.toggle = not hud.toggle end 
-		imgui.SameLine() 
-		if imgui.Checkbox(u8'Autosave', new.bool(hud.autosave)) then hud.autosave = not hud.autosave saveIni() end  
+		imgui.SetCursorPos(imgui.ImVec2(5, 25))
+
+		imgui.BeginChild("##2", imgui.ImVec2(460, 76), false)
+			
+			imgui.SetCursorPos(imgui.ImVec2(81,5))
+			if imgui.CustomButton(faicons.ICON_MEDKIT .. ' Health',
+				mid == 1 and imgui.ImVec4(0.56, 0.16, 0.16, 1) or imgui.ImVec4(0.16, 0.16, 0.16, 0.9),
+				imgui.ImVec4(0.40, 0.12, 0.12, 1), 
+				imgui.ImVec4(0.30, 0.08, 0.08, 1), 
+				imgui.ImVec2(75, 25)) then
+				mid = 1
+			end
+			
+			imgui.SetCursorPos(imgui.ImVec2(81,31))
+			if imgui.CustomButton(faicons.ICON_SHIELD .. ' Armor',
+				mid == 2 and imgui.ImVec4(0.56, 0.16, 0.16, 1) or imgui.ImVec4(0.16, 0.16, 0.16, 0.9),
+				imgui.ImVec4(0.40, 0.12, 0.12, 1), 
+				imgui.ImVec4(0.30, 0.08, 0.08, 1), 
+				imgui.ImVec2(75, 25)) then
+				mid = 2
+			end
+			
+			imgui.SetCursorPos(imgui.ImVec2(157,5))
+			if imgui.CustomButton(faicons.ICON_MALE .. ' Sprint',
+				mid == 3 and imgui.ImVec4(0.56, 0.16, 0.16, 1) or imgui.ImVec4(0.16, 0.16, 0.16, 0.9),
+				imgui.ImVec4(0.40, 0.12, 0.12, 1), 
+				imgui.ImVec4(0.30, 0.08, 0.08, 1), 
+				imgui.ImVec2(75, 25)) then
+				mid = 3
+			end
+			
+			imgui.SetCursorPos(imgui.ImVec2(157,31))
+			if imgui.CustomButton(ti.ICON_CAR  .. ' Vehicle',
+				mid == 4 and imgui.ImVec4(0.56, 0.16, 0.16, 1) or imgui.ImVec4(0.16, 0.16, 0.16, 0.9),
+				imgui.ImVec4(0.40, 0.12, 0.12, 1), 
+				imgui.ImVec4(0.30, 0.08, 0.08, 1), 
+				imgui.ImVec2(75, 25)) then
+				mid = 4
+			end
+			
+			imgui.SetCursorPos(imgui.ImVec2(233,5))
+			if imgui.CustomButton(ti.ICON_SCUBA_MASK .. ' Breath',
+				mid == 5 and imgui.ImVec4(0.56, 0.16, 0.16, 1) or imgui.ImVec4(0.16, 0.16, 0.16, 0.9),
+				imgui.ImVec4(0.40, 0.12, 0.12, 1), 
+				imgui.ImVec4(0.30, 0.08, 0.08, 1), 
+				imgui.ImVec2(75, 25)) then
+				mid = 5
+			end
+			
+			imgui.SetCursorPos(imgui.ImVec2(233,31))
+			if imgui.CustomButton(ti.ICON_FOCUS_2 .. ' Weapon',
+				mid == 6 and imgui.ImVec4(0.56, 0.16, 0.16, 1) or imgui.ImVec4(0.16, 0.16, 0.16, 0.9),
+				imgui.ImVec4(0.40, 0.12, 0.12, 1), 
+				imgui.ImVec4(0.30, 0.08, 0.08, 1), 
+				imgui.ImVec2(75, 25)) then
+				mid = 6
+			end
+			
+			imgui.SetCursorPos(imgui.ImVec2(309,5))
+			if imgui.CustomButton('Stars/Cash',
+				mid == 7 and imgui.ImVec4(0.56, 0.16, 0.16, 1) or imgui.ImVec4(0.16, 0.16, 0.16, 0.9),
+				imgui.ImVec4(0.40, 0.12, 0.12, 1), 
+				imgui.ImVec4(0.30, 0.08, 0.08, 1), 
+				imgui.ImVec2(75, 25)) then
+				mid = 7
+			end
+			
+			imgui.SetCursorPos(imgui.ImVec2(309,31))
+			if imgui.CustomButton(faicons.ICON_COGS .. ' Other',
+				mid == 8 and imgui.ImVec4(0.56, 0.16, 0.16, 1) or imgui.ImVec4(0.16, 0.16, 0.16, 0.9),
+				imgui.ImVec4(0.40, 0.12, 0.12, 1), 
+				imgui.ImVec4(0.30, 0.08, 0.08, 1), 
+				imgui.ImVec2(75, 25)) then
+				mid = 8
+			end
+			
+			imgui.SetCursorPos(imgui.ImVec2(385,5))
+			if imgui.CustomButton(ti.ICON_GPS .. ' Radar',
+				mid == 9 and imgui.ImVec4(0.56, 0.16, 0.16, 1) or imgui.ImVec4(0.16, 0.16, 0.16, 0.9),
+				imgui.ImVec4(0.40, 0.12, 0.12, 1), 
+				imgui.ImVec4(0.30, 0.08, 0.08, 1), 
+				imgui.ImVec2(75, 25)) then
+				mid = 9
+			end
+			
+			imgui.SetCursorPos(imgui.ImVec2(385,31))
+			if imgui.CustomButton(ti.ICON_USERS .. ' Groups',
+				mid == 10 and imgui.ImVec4(0.56, 0.16, 0.16, 1) or imgui.ImVec4(0.16, 0.16, 0.16, 0.9),
+				imgui.ImVec4(0.40, 0.12, 0.12, 1), 
+				imgui.ImVec4(0.30, 0.08, 0.08, 1), 
+				imgui.ImVec2(75, 25)) then
+				mid = 10
+			end
+			
+		imgui.EndChild()
 		
-		imgui.SameLine() 
-		imgui.BeginGroup()
-			if imgui.Button(u8'Reset') then blankIni() createfonts() hztextdraws() end 
-			imgui.SameLine()
-			if imgui.Button(u8'Save') then saveIni() end 
-			imgui.SameLine()
-			if imgui.Button(u8'Reload') then loadIni() end
-			imgui.SameLine()
-			if imgui.Button(ti.ICON_REFRESH .. 'Update') then
+		imgui.SetCursorPos(imgui.ImVec2(5, 25))
+		
+		imgui.BeginChild("##1", imgui.ImVec2(85, 392), false)
+			
+			imgui.SetCursorPos(imgui.ImVec2(5, 5))
+      
+			if imgui.CustomButton(
+				faicons.ICON_POWER_OFF, 
+				hud.toggle and imgui.ImVec4(0.15, 0.59, 0.18, 0.7) or imgui.ImVec4(1, 0.19, 0.19, 0.5), 
+				hud.toggle and imgui.ImVec4(0.15, 0.59, 0.18, 0.5) or imgui.ImVec4(1, 0.19, 0.19, 0.3), 
+				hud.toggle and imgui.ImVec4(0.15, 0.59, 0.18, 0.4) or imgui.ImVec4(1, 0.19, 0.19, 0.2), 
+				imgui.ImVec2(75, 75)) then
+				hud.toggle = not hud.toggle
+			end
+			if imgui.IsItemHovered() then
+				imgui.SetTooltip('Toggles Hud')
+			end
+		
+			imgui.SetCursorPos(imgui.ImVec2(5, 81))
+
+			if imgui.CustomButton(
+				faicons.ICON_FLOPPY_O,
+				imgui.ImVec4(0.16, 0.16, 0.16, 0.9), 
+				imgui.ImVec4(0.40, 0.12, 0.12, 1), 
+				imgui.ImVec4(0.30, 0.08, 0.08, 1), 
+				imgui.ImVec2(75, 75)) then
+				saveIni()
+			end
+			if imgui.IsItemHovered() then
+				imgui.SetTooltip('Save the INI')
+			end
+      
+			imgui.SetCursorPos(imgui.ImVec2(5, 157))
+
+			if imgui.CustomButton(
+				faicons.ICON_REPEAT, 
+				imgui.ImVec4(0.16, 0.16, 0.16, 0.9), 
+				imgui.ImVec4(0.40, 0.12, 0.12, 1), 
+				imgui.ImVec4(0.30, 0.08, 0.08, 1), 
+				imgui.ImVec2(75, 75)) then
+				loadIni()
+			end
+			if imgui.IsItemHovered() then
+				imgui.SetTooltip('Reload the INI')
+			end
+
+			imgui.SetCursorPos(imgui.ImVec2(5, 233))
+
+			if imgui.CustomButton(
+				faicons.ICON_ERASER, 
+				imgui.ImVec4(0.16, 0.16, 0.16, 0.9), 
+				imgui.ImVec4(0.40, 0.12, 0.12, 1), 
+				imgui.ImVec4(0.30, 0.08, 0.08, 1), 
+				imgui.ImVec2(75, 75)) then
+				blankIni()
+				createfonts() 
+				hztextdraws()
+			end
+			if imgui.IsItemHovered() then
+				imgui.SetTooltip('Reset the INI to default settings')
+			end
+
+			imgui.SetCursorPos(imgui.ImVec2(5, 309))
+
+			if imgui.CustomButton(
+				faicons.ICON_RETWEET .. ' Update',
+				imgui.ImVec4(0.16, 0.16, 0.16, 0.9), 
+				imgui.ImVec4(0.40, 0.12, 0.12, 1), 
+				imgui.ImVec4(0.30, 0.08, 0.08, 1),  
+				imgui.ImVec2(75, 75)) then
 				update_script()
-			end 
+			end
 			if imgui.IsItemHovered() then
 				imgui.SetTooltip('Update the script')
 			end
-			imgui.SameLine()
-			if imgui.Checkbox('##autoupdate', new.bool(hud.autoupdate)) then 
-				hud.autoupdate = not hud.autoupdate 
-			end
-			if imgui.IsItemHovered() then
-				imgui.SetTooltip('Auto-Update')
-			end
-		imgui.EndGroup()
+      
+		imgui.EndChild()
 	
-		if mid >= 1 and mid <= 7 then 
-			imgui.BeginChild("##bgTwo", imgui.ImVec2(345, 160), false)
+		imgui.SetCursorPos(imgui.ImVec2(89, 85))
+
+		imgui.BeginChild("##3", imgui.ImVec2(376, 289), true)
+		
+			if mid >= 1 and mid <= 7 then 
 				if imgui.Checkbox(u8'Bar', new.bool(hud.tog[mid][1])) then hud.tog[mid][1] = not hud.tog[mid][1] end 
 				imgui.SameLine() 
 				if imgui.Checkbox(u8'Text', new.bool(hud.tog[mid][2])) then hud.tog[mid][2] = not hud.tog[mid][2] end 
@@ -342,15 +407,14 @@ function()
 						hud.tog[mid][4] = not hud.tog[mid][4] 
 					end 
 				end
-				
 				imgui.NewLine() 
-				imgui.SameLine(2) 
+	
 				imgui.Text(u8'Left/Right') 
 				imgui.SameLine(90) 
 				imgui.Text(u8'Up/Down') 
 				imgui.SameLine(180) 
 				imgui.Text(u8'Width') 
-				imgui.SameLine(270) 
+				imgui.SameLine(260) 
 				imgui.Text(u8'Height') 
 				
 				imgui.PushItemWidth(330) 
@@ -396,7 +460,7 @@ function()
 						end
 						imgui.SameLine()
 						imgui.Text('Border')
-						
+							
 						fcolor = new.float[4](hex2rgba(hud.color[mid][1][2]))
 						if imgui.ColorEdit4('##fade', fcolor, imgui.ColorEditFlags.NoInputs + imgui.ColorEditFlags.NoLabel) then 
 							hud.color[mid][1][2] = join_argb(fcolor[3] * 255, fcolor[0] * 255, fcolor[1] * 255, fcolor[2] * 255) 
@@ -432,7 +496,7 @@ function()
 				
 				imgui.SameLine()
 				imgui.PushItemWidth(95)
-				if imgui.BeginCombo("##1", (hud.pos[hud.move[mid][1]] ~= nil and hud.pos[hud.move[mid][1]].name or hud.pos[1].name)) then
+				if imgui.BeginCombo("Groups##1", (hud.pos[hud.move[mid][1]] ~= nil and hud.pos[hud.move[mid][1]].name or hud.pos[1].name)) then
 					for i = 1, #hud.pos do
 						if imgui.Selectable(hud.pos[i].name..'##'..i, hud.move[mid][1] == i) then
 							hud.move[mid][1] = i
@@ -442,13 +506,13 @@ function()
 				end
 				imgui.PopItemWidth()
 				
+				imgui.NewLine()
 				font_gui('Text:', mid, 2, 1, 1, 2, 2, 1, 1, 2) 
 				if mid == 6 then 
+					imgui.NewLine()
 					font_gui('Name:', mid, 3, 2, 2, 3, 3, 2, 2, 3) 
 				end
-			imgui.EndChild()
-		elseif mid == 8 then
-			imgui.BeginChild("##bgTwo", imgui.ImVec2(345, 190), false)
+			elseif mid == 8 then
 				for i = 1, 11 do 
 					font_gui(assets.fnames[i]..':', mid, i, i, i, i, i, i, i, i)
 					if imgui.Checkbox(assets.fnames[i]..'##'..i, new.bool(hud.tog[mid][i][1])) then hud.tog[mid][i][1] = not hud.tog[mid][i][1] end 
@@ -466,212 +530,239 @@ function()
 						imgui.SameLine()
 						if imgui.Checkbox(hud.tog[8][6][2] and 'Camera' or 'Heading', new.bool(hud.tog[mid][6][2])) then hud.tog[mid][6][2] = not hud.tog[mid][6][2] end 	
 					end
+					imgui.NewLine()
 				end
-			imgui.EndChild()
-		elseif mid == 9 then	
-			imgui.BeginChild("##bgTwo", imgui.ImVec2(345, 140), false)
-				imgui.PushItemWidth(115) 
-				color = new.float[3](hex2rgb(hud.radar.color))
-				if imgui.ColorEdit3('##color', color, imgui.ColorEditFlags.NoInputs + imgui.ColorEditFlags.NoLabel) then 
-					hud.radar.color = join_argb(255, color[0] * 255, color[1] * 255, color[2] * 255) 
-				end
-				imgui.SameLine() 
-				imgui.Text(u8'Radar Color') 
-				imgui.PopItemWidth()
-				imgui.SameLine() 
-				if imgui.Checkbox('Compass', new.bool(hud.radar.compass)) then 
-					if hud.radar.compass then
-						for i = 1, 4 do
-							removeBlip(assets.compass[i])
-						end
-						hud.radar.compass = false
-					else
-						assets.compass[1] = addSpriteBlipForCoord(0.0, 999999.0, 23.0, 24) --  N
-						assets.compass[2] = addSpriteBlipForCoord(999999.0, 0.0, 23.0, 34) -- S
-						assets.compass[3] = addSpriteBlipForCoord(-999999.0, 0.0, 23.0, 46) -- W
-						assets.compass[4] = addSpriteBlipForCoord(0.0, -999999.0, 23.0, 38) -- E
-						hud.radar.compass = true
+			elseif mid == 9 then	
+				imgui.BeginChild("##bgTwo", imgui.ImVec2(345, 140), false)
+					imgui.PushItemWidth(115) 
+					color = new.float[3](hex2rgb(hud.radar.color))
+					if imgui.ColorEdit3('##color', color, imgui.ColorEditFlags.NoInputs + imgui.ColorEditFlags.NoLabel) then 
+						hud.radar.color = join_argb(255, color[0] * 255, color[1] * 255, color[2] * 255) 
 					end
-				end
-					
-				imgui.NewLine() 
-				imgui.SameLine(3) 
-				imgui.Text(u8'Left/Right') 
-				imgui.SameLine(90) 
-				imgui.Text(u8'Up/Down') 
-				imgui.SameLine(180) 
-				imgui.Text(u8'Width') 
-				imgui.SameLine(250) 
-				imgui.Text(u8'Height') 
-			
-				imgui.PushItemWidth(160) 
-				local radarpos = new.float[2](hud.radar.pos[1], hud.radar.pos[2])
-				if imgui.DragFloat2('##move2', radarpos, 0.1, 20 * -2000.0, 20 * 2000.0, "%.1f") then 
-					hud.radar.pos[1] = radarpos[0] 
-					hud.radar.pos[2] = radarpos[1] 
-				end 
-				imgui.SameLine()
-				local radarsize = new.float[2](hud.radar.size[1], hud.radar.size[2])
-				if imgui.DragFloat2('##move3', radarsize, 0.1, 20 * -2000.0, 20 * 2000.0, "%.1f") then 
-					hud.radar.size[1] = radarsize[0] 
-					hud.radar.size[2] = radarsize[1] 
-				end 
-				imgui.PopItemWidth()
-			
-				imgui.NewLine() 
-				imgui.SameLine(3) 
-				imgui.Text(u8'HZG Settings:') 
-					
-				if imgui.Checkbox('Turf', new.bool(hud.hzgsettings.turf)) then 
-					hud.hzgsettings.turf = not hud.hzgsettings.turf
-					for i = 1, 3000 do
-						if sampTextdrawIsExists(i) then
-							local posX, posY = sampTextdrawGetPos(i)					
-							local _, _, sizeX, sizeY = sampTextdrawGetBoxEnabledColorAndSize(i)
-							local _, _, color = sampTextdrawGetLetterSizeAndColor(i)
-							local text = sampTextdrawGetString (i)
-							if posX == 86 and sizeX == 1280 and sizeY == 1280 then
-								if hud.hzgsettings.turf then
-									sampTextdrawSetLetterSizeAndColor (i, 0.23999999463558, 1.2000000476837, color)
-								else
-									sampTextdrawSetLetterSizeAndColor (i, 0, 0, color)
-								end
-							end
-							
-							if text == 'TURF OWNER:' then -- activates with above (check if on/off)
-								if hud.hzgsettings.turfowner then
-									sampTextdrawSetLetterSizeAndColor (i, 0.23999999463558, 1.2000000476837, color)
-								else
-									sampTextdrawSetLetterSizeAndColor (i, 0, 0, color)
-								end
-							end
-							
-						end
-					end		
-				end
-				imgui.SameLine() 
-				if imgui.Checkbox('WW', new.bool(hud.hzgsettings.wristwatch)) then 
-					hud.hzgsettings.wristwatch = not hud.hzgsettings.wristwatch
-					for i = 1, 3000 do
-						if sampTextdrawIsExists(i) then
-							local posX, posY = sampTextdrawGetPos(i)
-							local _, _, color = sampTextdrawGetLetterSizeAndColor(i)
-							if posX == 577 and posY == 24 then
-								if hud.hzgsettings.wristwatch then
-									sampTextdrawSetLetterSizeAndColor (i, 0.5, 2, color)
-								else
-									sampTextdrawSetLetterSizeAndColor (i, 0, 0, color)
-								end
-							end
-						end
-					end
-				end
-				imgui.SameLine() 
-				if imgui.Checkbox('HZG Logo', new.bool(hud.hzgsettings.hzglogo)) then 
-					hud.hzgsettings.hzglogo = not hud.hzgsettings.hzglogo
-					for i = 1, 3000 do
-						if sampTextdrawIsExists(i) then
-							local text = sampTextdrawGetString(i)
-							local _, _, color = sampTextdrawGetLetterSizeAndColor(i)
-							if text == 'hzgaming.net' then
-								if hud.hzgsettings.hzglogo then
-									sampTextdrawSetLetterSizeAndColor (i, 0.3199990093708, 1.3999999761581, color)
-								else
-									sampTextdrawSetLetterSizeAndColor (i, 0, 0, color)
-								end
-							end
-						end
-					end
-				end
-				imgui.SameLine() 
-				if imgui.Checkbox('Turf Owner', new.bool(hud.hzgsettings.turfowner)) then 
-					hud.hzgsettings.turfowner = not hud.hzgsettings.turfowner
-					for i = 1, 3000 do
-						if sampTextdrawIsExists(i) then
-							local text = sampTextdrawGetString (i)
-							local _, _, color = sampTextdrawGetLetterSizeAndColor(i)
-							if text == 'TURF OWNER:' then
-								if hud.hzgsettings.turfowner then
-									sampTextdrawSetLetterSizeAndColor (i, 0.23999999463558, 1.2000000476837, color)
-								else
-									sampTextdrawSetLetterSizeAndColor (i, 0, 0, color)
-								end
-							end
-						end
-					end
-				end
-			imgui.EndChild()
-		elseif mid == 10 then
-			imgui.BeginChild("##bgTwo", imgui.ImVec2(345, 140), false)
-				for k, v in ipairs(hud.pos) do
-					imgui.PushItemWidth(95) 
-					text = new.char[30](v.name)
-					if imgui.InputText('##input'..k, text, sizeof(text), imgui.InputTextFlags.EnterReturnsTrue) then
-						v.name = u8:decode(str(text))
-					end
+					imgui.SameLine() 
+					imgui.Text(u8'Radar Color') 
 					imgui.PopItemWidth()
-						
-						
+					imgui.SameLine() 
+					if imgui.Checkbox('Compass', new.bool(hud.radar.compass)) then 
+						hud.radar.compass = not hud.radar.compass
+						if hud.radar.compass then
+							for i = 1, 4 do
+								removeBlip(assets.compass[i])
+							end
+						else
+							assets.compass[1] = addSpriteBlipForCoord(0.0, 999999.0, 23.0, 24) --  N
+							assets.compass[2] = addSpriteBlipForCoord(999999.0, 0.0, 23.0, 34) -- S
+							assets.compass[3] = addSpriteBlipForCoord(-999999.0, 0.0, 23.0, 46) -- W
+							assets.compass[4] = addSpriteBlipForCoord(0.0, -999999.0, 23.0, 38) -- E
+						end
+					end
+						 
+					imgui.Text(u8'Left/Right') 
+					imgui.SameLine(90) 
+					imgui.Text(u8'Up/Down') 
+					imgui.SameLine(180) 
+					imgui.Text(u8'Width') 
+					imgui.SameLine(250) 
+					imgui.Text(u8'Height') 
+				
+					imgui.PushItemWidth(160) 
+					local radarpos = new.float[2](hud.radar.pos[1], hud.radar.pos[2])
+					if imgui.DragFloat2('##move2', radarpos, 0.1, 20 * -2000.0, 20 * 2000.0, "%.1f") then 
+						hud.radar.pos[1] = radarpos[0] 
+						hud.radar.pos[2] = radarpos[1] 
+					end 
 					imgui.SameLine()
-					
-					imgui.PushItemWidth(110)
-					local pos = new.float[2](v.x, v.y)
-					if imgui.DragFloat2('##'..k, pos, 0.1, 12 * 2000.0, 12 * 2000.0, "%.1f") then 
-						v.x = pos[0] 
-						v.y = pos[1] 
+					local radarsize = new.float[2](hud.radar.size[1], hud.radar.size[2])
+					if imgui.DragFloat2('##move3', radarsize, 0.1, 20 * -2000.0, 20 * 2000.0, "%.1f") then 
+						hud.radar.size[1] = radarsize[0] 
+						hud.radar.size[2] = radarsize[1] 
 					end 
 					imgui.PopItemWidth()
-					
-					imgui.SameLine()
-					if imgui.Button(v.move and u8"Undo##"..k or u8"Move##"..k) then
-						v.move = not v.move
-						if v.move then
-							sampAddChatMessage(string.format('%s: Press {FF0000}%s {FFFFFF}to save the pos.', script.this.name, vk.id_to_name(VK_LBUTTON)), -1) 
-							assets.temp_pos.x = v.x
-							assets.temp_pos.y = v.y
-							if debug_tog then
-								print(assets.temp_pos.x.. assets.temp_pos.y)
+				
+					imgui.NewLine() 
+					imgui.SameLine(3) 
+					imgui.Text(u8'HZG Settings:') 
+						
+					if imgui.Checkbox('Turf', new.bool(hud.hzgsettings.turf)) then 
+						hud.hzgsettings.turf = not hud.hzgsettings.turf
+						for i = 1, 3000 do
+							if sampTextdrawIsExists(i) then
+								local posX, posY = sampTextdrawGetPos(i)					
+								local _, _, sizeX, sizeY = sampTextdrawGetBoxEnabledColorAndSize(i)
+								local _, _, color = sampTextdrawGetLetterSizeAndColor(i)
+								local text = sampTextdrawGetString (i)
+								if posX == 86 and sizeX == 1280 and sizeY == 1280 then
+									if hud.hzgsettings.turf then
+										sampTextdrawSetLetterSizeAndColor (i, 0.23999999463558, 1.2000000476837, color)
+									else
+										sampTextdrawSetLetterSizeAndColor (i, 0, 0, color)
+									end
+								end
+								
+								if text == 'TURF OWNER:' then -- activates with above (check if on/off)
+									if hud.hzgsettings.turfowner then
+										sampTextdrawSetLetterSizeAndColor (i, 0.23999999463558, 1.2000000476837, color)
+									else
+										sampTextdrawSetLetterSizeAndColor (i, 0, 0, color)
+									end
+								end
+								
 							end
-							move = true
-						else
-							v.x = assets.temp_pos.x
-							v.y = assets.temp_pos.y
-							if debug_tog then
-								print(assets.temp_pos.x.. assets.temp_pos.y)
-							end
-							move = false
-						end
+						end		
 					end
-					
-					imgui.SameLine()
-					if k ~= 1 then
-						if imgui.Button(u8"x##"..k) then
-							if debug_tog then
-								print('k')
-							end
-							table.remove(hud.pos, k)
-						end
-					else
-						if imgui.Button(u8"+") then
-							hud.pos[#hud.pos + 1] = {
-								x = 500,
-								y = 500,
-								name = 'new',
-								move = false
-							}
-							for k, v in ipairs(hud.pos) do
-								local id = table.maxn(hud.pos)
-								if k == id then
-									if debug_tog then
-										print(k..' - '..table.maxn(hud.pos))
+					imgui.SameLine() 
+					if imgui.Checkbox('WW', new.bool(hud.hzgsettings.wristwatch)) then 
+						hud.hzgsettings.wristwatch = not hud.hzgsettings.wristwatch
+						for i = 1, 3000 do
+							if sampTextdrawIsExists(i) then
+								local posX, posY = sampTextdrawGetPos(i)
+								local _, _, color = sampTextdrawGetLetterSizeAndColor(i)
+								if posX == 577 and posY == 24 then
+									if hud.hzgsettings.wristwatch then
+										sampTextdrawSetLetterSizeAndColor (i, 0.5, 2, color)
+									else
+										sampTextdrawSetLetterSizeAndColor (i, 0, 0, color)
 									end
 								end
 							end
 						end
 					end
+					imgui.SameLine() 
+					if imgui.Checkbox('HZG Logo', new.bool(hud.hzgsettings.hzglogo)) then 
+						hud.hzgsettings.hzglogo = not hud.hzgsettings.hzglogo
+						for i = 1, 3000 do
+							if sampTextdrawIsExists(i) then
+								local text = sampTextdrawGetString(i)
+								local _, _, color = sampTextdrawGetLetterSizeAndColor(i)
+								if text == 'hzgaming.net' then
+									if hud.hzgsettings.hzglogo then
+										sampTextdrawSetLetterSizeAndColor (i, 0.3199990093708, 1.3999999761581, color)
+									else
+										sampTextdrawSetLetterSizeAndColor (i, 0, 0, color)
+									end
+								end
+							end
+						end
+					end
+					imgui.SameLine() 
+					if imgui.Checkbox('Turf Owner', new.bool(hud.hzgsettings.turfowner)) then 
+						hud.hzgsettings.turfowner = not hud.hzgsettings.turfowner
+						for i = 1, 3000 do
+							if sampTextdrawIsExists(i) then
+								local text = sampTextdrawGetString (i)
+								local _, _, color = sampTextdrawGetLetterSizeAndColor(i)
+								if text == 'TURF OWNER:' then
+									if hud.hzgsettings.turfowner then
+										sampTextdrawSetLetterSizeAndColor (i, 0.23999999463558, 1.2000000476837, color)
+									else
+										sampTextdrawSetLetterSizeAndColor (i, 0, 0, color)
+									end
+								end
+							end
+						end
+					end
+				imgui.EndChild()
+			elseif mid == 10 then
+					for k, v in ipairs(hud.pos) do
+						imgui.PushItemWidth(120) 
+						text = new.char[30](v.name)
+						if imgui.InputText('##input'..k, text, sizeof(text), imgui.InputTextFlags.EnterReturnsTrue) then
+							v.name = u8:decode(str(text))
+						end
+						imgui.PopItemWidth()
+							
+							
+						imgui.SameLine()
+						
+						imgui.PushItemWidth(75)
+						local pos = new.float[1](v.x)
+						if imgui.DragFloat('##'..k, pos, 0.1, 12 * 2000.0, 12 * 2000.0, "%.1f") then 
+							v.x = pos[0] 
+						end 
+						imgui.PopItemWidth()
+						
+						imgui.SameLine()
+						
+						imgui.PushItemWidth(75)
+						local pos2 = new.float[1](v.x)
+						if imgui.DragFloat('##'..k, pos2, 0.1, 12 * 2000.0, 12 * 2000.0, "%.1f") then 
+							v.y = pos2[0] 
+						end 
+						imgui.PopItemWidth()
+						
+						imgui.SameLine()
+						if imgui.Button(v.move and u8"Undo##"..k or u8"Move##"..k) then
+							v.move = not v.move
+							if v.move then
+								sampAddChatMessage(string.format('%s: Press {FF0000}%s {FFFFFF}to save the pos.', script.this.name, vk.id_to_name(VK_LBUTTON)), -1) 
+								assets.temp_pos.x = v.x
+								assets.temp_pos.y = v.y
+								if debug_tog then
+									print(assets.temp_pos.x.. assets.temp_pos.y)
+								end
+								move = true
+							else
+								v.x = assets.temp_pos.x
+								v.y = assets.temp_pos.y
+								if debug_tog then
+									print(assets.temp_pos.x.. assets.temp_pos.y)
+								end
+								move = false
+							end
+						end
+						
+						imgui.SameLine()
+						if k ~= 1 then
+							if imgui.Button(u8"x##"..k) then
+								if debug_tog then
+									print('k')
+								end
+								table.remove(hud.pos, k)
+							end
+						else
+							if imgui.Button(u8"+") then
+								hud.pos[#hud.pos + 1] = {
+									x = 500,
+									y = 500,
+									name = 'new',
+									move = false
+								}
+								for k, v in ipairs(hud.pos) do
+									local id = table.maxn(hud.pos)
+									if k == id then
+										if debug_tog then
+											print(k..' - '..table.maxn(hud.pos))
+										end
+									end
+								end
+							end
+						end
+					end
+			end
+		imgui.EndChild()
+		
+		imgui.SetCursorPos(imgui.ImVec2(89, 373))
+		
+		imgui.BeginChild("##5", imgui.ImVec2(376, 36), true)
+		
+			imgui.BeginGroup()
+				if imgui.Checkbox('Auto-save', new.bool(hud.autosave)) then 
+					hud.autosave = not hud.autosave 
+					saveIni() 
 				end
-			imgui.EndChild()
-		end
+				if imgui.IsItemHovered() then
+					imgui.SetTooltip('Auto-save')
+				end
+				
+				imgui.SameLine()
+				if imgui.Checkbox('Auto-update', new.bool(hud.autoupdate)) then 
+					hud.autoupdate = not hud.autoupdate 
+				end
+				if imgui.IsItemHovered() then
+					imgui.SetTooltip('Auto-Update')
+				end
+			imgui.EndGroup()
+		imgui.EndChild()
 	imgui.End()
 end)
 
@@ -683,7 +774,6 @@ function update_script()
 		downloadUrlToFile(script_url, script_path, function(id, status)
 			if status == dlstatus.STATUS_ENDDOWNLOADDATA then
 				sampAddChatMessage(string.format("{ABB2B9}[%s]{FFFFFF} The update was successful!", script.this.name), -1)
-				blankIni()
 				update = true
 			end
 		end)
@@ -882,10 +972,12 @@ function main()
 		end
 	end)
 	
-	while true do wait(1)		
+	while true do wait(0)		
 		if update then
 			menu[0] = false
 			lua_thread.create(function() 
+				hud.autosave = false
+				os.remove(cfg)
 				wait(20000) 
 				thisScript():reload()
 				update = false
@@ -1337,16 +1429,14 @@ function aligntext(fid, value, align)
 end
 
 function font_gui(title, id, color, fontsize, font, off1, off2, align, fontflag, move)
-	imgui.NewLine()	
-	imgui.SameLine(4) 
 	imgui.Text(title) 
 	
 	
-	imgui.SameLine(140) 
+	imgui.SameLine(155) 
 	imgui.Text('Font') 
 	
-	imgui.SameLine(240) 
-	imgui.Text('Group') 
+	imgui.SameLine(255) 
+	imgui.Text('Groups') 
 	
 	local choices = {'Left', 'Center', 'Right'}
 	imgui.PushItemWidth(68)
@@ -2111,4 +2201,90 @@ function getPlayerZoneName()
         end
     end
 	return zonename
+end
+
+-- IMGUI_API bool          CustomButton(const char* label, const ImVec4& col, const ImVec4& col_focus, const ImVec4& col_click, const ImVec2& size = ImVec2(0,0));
+function imgui.CustomButton(name, color, colorHovered, colorActive, size)
+    local clr = imgui.Col
+    imgui.PushStyleColor(clr.Button, color)
+    imgui.PushStyleColor(clr.ButtonHovered, colorHovered)
+    imgui.PushStyleColor(clr.ButtonActive, colorActive)
+    if not size then size = imgui.ImVec2(0, 0) end
+    local result = imgui.Button(name, size)
+    imgui.PopStyleColor(3)
+    return result
+end
+
+function apply_custom_style()
+	imgui.SwitchContext()
+	local ImVec4 = imgui.ImVec4
+	local ImVec2 = imgui.ImVec2
+	local style = imgui.GetStyle()
+	style.WindowRounding = 0
+	style.WindowPadding = ImVec2(8, 8)
+	style.WindowTitleAlign = ImVec2(0.5, 0.5)
+	--style.ChildWindowRounding = 0
+	style.FrameRounding = 0
+	style.ItemSpacing = ImVec2(8, 4)
+	style.ScrollbarSize = 10
+	style.ScrollbarRounding = 3
+	style.GrabMinSize = 10
+	style.GrabRounding = 0
+	style.Alpha = 1
+	style.FramePadding = ImVec2(4, 3)
+	style.ItemInnerSpacing = ImVec2(4, 4)
+	style.TouchExtraPadding = ImVec2(0, 0)
+	style.IndentSpacing = 21
+	style.ColumnsMinSpacing = 6
+	style.ButtonTextAlign = ImVec2(0.5, 0.5)
+	style.DisplayWindowPadding = ImVec2(22, 22)
+	style.DisplaySafeAreaPadding = ImVec2(4, 4)
+	style.AntiAliasedLines = true
+	--style.AntiAliasedShapes = true
+	style.CurveTessellationTol = 1.25
+	local colors = style.Colors
+	local clr = imgui.Col
+	colors[clr.FrameBg]                = ImVec4(0.48, 0.16, 0.16, 0.54)
+	colors[clr.FrameBgHovered]         = ImVec4(0.98, 0.26, 0.26, 0.40)
+	colors[clr.FrameBgActive]          = ImVec4(0.98, 0.26, 0.26, 0.67)
+	colors[clr.TitleBg]                = ImVec4(0.04, 0.04, 0.04, 1.00)
+	colors[clr.TitleBgActive]          = ImVec4(0.48, 0.16, 0.16, 1.00)
+	colors[clr.TitleBgCollapsed]       = ImVec4(0.00, 0.00, 0.00, 0.51)
+	colors[clr.CheckMark]              = ImVec4(0.98, 0.26, 0.26, 1.00)
+	colors[clr.SliderGrab]             = ImVec4(0.88, 0.26, 0.24, 1.00)
+	colors[clr.SliderGrabActive]       = ImVec4(0.98, 0.26, 0.26, 1.00)
+	colors[clr.Button]                 = ImVec4(0.98, 0.26, 0.26, 0.40)
+	colors[clr.ButtonHovered]          = ImVec4(0.98, 0.26, 0.26, 1.00)
+	colors[clr.ButtonActive]           = ImVec4(0.98, 0.06, 0.06, 1.00)
+	colors[clr.Header]                 = ImVec4(0.98, 0.26, 0.26, 0.31)
+	colors[clr.HeaderHovered]          = ImVec4(0.98, 0.26, 0.26, 0.80)
+	colors[clr.HeaderActive]           = ImVec4(0.98, 0.26, 0.26, 1.00)
+	colors[clr.Separator]              = colors[clr.Border]
+	colors[clr.SeparatorHovered]       = ImVec4(0.75, 0.10, 0.10, 0.78)
+	colors[clr.SeparatorActive]        = ImVec4(0.75, 0.10, 0.10, 1.00)
+	colors[clr.ResizeGrip]             = ImVec4(0.98, 0.26, 0.26, 0.25)
+	colors[clr.ResizeGripHovered]      = ImVec4(0.98, 0.26, 0.26, 0.67)
+	colors[clr.ResizeGripActive]       = ImVec4(0.98, 0.26, 0.26, 0.95)
+	colors[clr.TextSelectedBg]         = ImVec4(0.98, 0.26, 0.26, 0.35)
+	colors[clr.Text]                   = ImVec4(1.00, 1.00, 1.00, 1.00)
+	colors[clr.TextDisabled]           = ImVec4(0.50, 0.50, 0.50, 1.00)
+	colors[clr.WindowBg]               = ImVec4(0.06, 0.06, 0.06, 0.94)
+	--colors[clr.ChildWindowBg]          = ImVec4(1.00, 1.00, 1.00, 0.00)
+	colors[clr.PopupBg]                = ImVec4(0.08, 0.08, 0.08, 0.94)
+	--colors[clr.ComboBg]                = colors[clr.PopupBg]
+	colors[clr.Border]                 = ImVec4(0.43, 0.43, 0.50, 0.50)
+	colors[clr.BorderShadow]           = ImVec4(0.00, 0.00, 0.00, 0.00)
+	colors[clr.MenuBarBg]              = ImVec4(0.14, 0.14, 0.14, 1.00)
+	colors[clr.ScrollbarBg]            = ImVec4(0.02, 0.02, 0.02, 0.53)
+	colors[clr.ScrollbarGrab]          = ImVec4(0.31, 0.31, 0.31, 1.00)
+	colors[clr.ScrollbarGrabHovered]   = ImVec4(0.41, 0.41, 0.41, 1.00)
+	colors[clr.ScrollbarGrabActive]    = ImVec4(0.51, 0.51, 0.51, 1.00)
+	--colors[clr.CloseButton]            = ImVec4(0.41, 0.41, 0.41, 0.50)
+	--colors[clr.CloseButtonHovered]     = ImVec4(0.98, 0.39, 0.36, 1.00)
+	--colors[clr.CloseButtonActive]      = ImVec4(0.98, 0.39, 0.36, 1.00)
+	colors[clr.PlotLines]              = ImVec4(0.61, 0.61, 0.61, 1.00)
+	colors[clr.PlotLinesHovered]       = ImVec4(1.00, 0.43, 0.35, 1.00)
+	colors[clr.PlotHistogram]          = ImVec4(0.90, 0.70, 0.00, 1.00)
+	colors[clr.PlotHistogramHovered]   = ImVec4(1.00, 0.60, 0.00, 1.00)
+	--colors[clr.ModalWindowDarkening]   = ImVec4(0.80, 0.80, 0.80, 0.35)
 end
