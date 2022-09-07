@@ -2,8 +2,8 @@ script_name("Hud")
 script_author("akacross")
 script_url("https://akacross.net/")
 
-local script_version = 1.0
-local script_version_text = '1.0'
+local script_version = 1.2
+local script_version_text = '1.2'
 
 if getMoonloaderVersion() >= 27 then
 	require 'libstd.deps' {
@@ -44,25 +44,34 @@ local resourcepath = getWorkingDirectory() .. '/resource/' .. thisScript().name 
 local iconspath = getWorkingDirectory() .. '/resource/' .. thisScript().name .. '/Weapons/' 
 local cleopath = getGameDirectory() .. '\\cleo'
 local cfg_hud = path .. thisScript().name.. '\\' .. thisScript().name..'.ini'
+local cfg_autosave = path .. thisScript().name.. '\\' .. 'Autosave'..'.ini'
 local script_path = thisScript().path
 local script_url = "https://raw.githubusercontent.com/akacross/hud/main/hud.lua"
 local update_url = "https://raw.githubusercontent.com/akacross/hud/main/hud.txt"
 local icons_url = "https://raw.githubusercontent.com/akacross/hud/main/resource/Hud/Weapons/"
 local fixwidth_url = "https://raw.githubusercontent.com/akacross/hud/main/FixWIDTH.cs"
 
-local function loadIconicFont(fontSize, min, max, fontdata)
+local function loadIconicFont(fromfile, fontSize, min, max, fontdata)
     local config = imgui.ImFontConfig()
     config.MergeMode = true
     config.PixelSnapH = true
-    local iconRanges = imgui.new.ImWchar[3](min, max, 0)
-    imgui.GetIO().Fonts:AddFontFromMemoryCompressedBase85TTF(fontdata, fontSize, config, iconRanges)
+    local iconRanges = new.ImWchar[3](min, max, 0)
+	if fromfile then
+		imgui.GetIO().Fonts:AddFontFromFileTTF(fontdata, fontSize, config, iconRanges)
+	else
+		imgui.GetIO().Fonts:AddFontFromMemoryCompressedBase85TTF(fontdata, fontSize, config, iconRanges)
+	end
 end
+
+local blank_autosave = {}
+local autosave = {turftext = '', wwtext = ''}
 
 local blank_hud = {}
 local hud = {
 	toggle = true,
 	autosave = false,
 	autoupdate = false,
+	defaulthud = false,
 	tog = {
 		{true,true,false},
 		{true,true,true},
@@ -129,12 +138,42 @@ local hud = {
 		color = -16777216,
 		compass = false
 	},
+	
 	hzgsettings = {
-		turf = false,
-		turfowner = false,
-		wristwatch = false,
-		hzglogo = false,
-		hpbar = false
+		turf = {
+			toggle = {false},
+			pos = {86, 434}
+		},
+		turfowner = {
+			toggle = {false},
+			pos = {86, 423},
+			color = 4294967295
+		},
+		wristwatch = {
+			toggle = {false},
+			pos = {577, 24},
+			color = 4294967295
+		},
+		hzglogo = {
+			toggle = {true,false},
+			pos = {562, 3},
+			color = 4294967295,
+			customstring = 'akacross.net'
+		},
+		hpbar = {
+			toggle = {false},
+			color1 = 4278190080,
+			color2 = 4284091408,
+			color3 = 4290058273
+		},
+		hptext = {
+			toggle = {false},
+			color = 4294967295
+		},
+		armortext = {
+			toggle = {false},
+			color = 4294967295
+		}
 	}
 }
 
@@ -143,6 +182,9 @@ local mid = 1
 local move = false
 local update = false
 local debug_tog = false
+local textdrawbool = {false,false,false,false,false,false,false,false,false}
+local servermessagebool = false
+local blankini = false
 
 local value = {
 	{0},{0},{0},{0},{0},{0,0,'Weapon Name'},{0,0},{'Name','Local-Time','Server-Time','Ping','FPS','Direction','Location','Turf','Vehicle Speed','Vehicle Name','Badge'}
@@ -181,6 +223,7 @@ local fps = 0
 local fps_counter = 0
 
 local inuse = false
+local inusemove = {}
 local selected = {
 	{false,false},
 	{false,false},
@@ -192,6 +235,7 @@ local selected = {
 	{false,false,false,false,false,false,false,false,false,false,false},
 	{false}
 }
+local selectedbox = {}
 
  ffi.cdef
 [[
@@ -225,8 +269,46 @@ local selected = {
 	} __attribute__ ((packed));
 ]]
 
+local function NumberString
+(Number)
+	local String = ''
+	repeat
+		local Remainder = Number % 2
+		String = Remainder .. String
+		Number = (Number - Remainder) / 2
+	until Number == 0
+	return String
+end
+
+function FromBinary(String)
+	if (#String % 8 ~= 0)
+	then
+		print('Malformed binary sequence')
+	end
+	local Result = ''
+	for i = 1, (#String), 8 do
+		Result = Result..string.char(tonumber(String:sub(i, i + 7), 2))
+	end
+	return Result
+end
+
+function ToBinary(String)
+	if (#String > 0)
+	then
+		local Result = ''
+		for i = 1, (#String)
+		do
+			Result  = Result .. string.format('%08d', NumberString(string.byte(string.sub(String, i, i))))
+		end
+		return Result
+	else
+		return nil
+	end
+end
+
 function main() 
 	blank_hud = table.deepcopy(hud)
+	blank_autosave = table.deepcopy(autosave)
 	if not doesDirectoryExist(path) then createDirectory(path) end
 	if not doesDirectoryExist(configpath) then createDirectory(configpath) end
 	if not doesDirectoryExist(resource) then createDirectory(resource) end
@@ -234,18 +316,79 @@ function main()
 	if not doesDirectoryExist(iconspath) then createDirectory(iconspath) end
 	
 	if doesFileExist(cfg_hud) then loadIni_hud() else blankIni_hud() end
+	if doesFileExist(cfg_autosave) then loadIni_autosave() else blankIni_autosave() end
 
-	if hud.hzgsettings.hpbar == nil then
-		hud.hzgsettings.hpbar = false
+	--[[if hud.hzgsettings.turf == false then
+		hud.hzgsettings.turf = {}
 	end
-
-	displayHud(false) 
+	
+	if hud.hzgsettings.turfowner == false then
+		hud.hzgsettings.turfowner = {}
+	end
+	
+	if hud.hzgsettings.wristwatch == false then
+		hud.hzgsettings.wristwatch = {}
+	end
+	
+	if hud.hzgsettings.hzglogo == false then
+		hud.hzgsettings.hzglogo = {}
+	end
+	
+	if hud.hzgsettings.hpbar == false then
+		hud.hzgsettings.hpbar = {}
+	end
+	
+	if hud.hzgsettings.hzglogo == false then
+		hud.hzgsettings.hzglogo = {}
+	end
+	
+	if hud.hzgsettings.hzglogo.toggle[1] == nil then
+		hud.hzgsettings.hzglogo.toggle[1] = true
+	end
+	
+	if hud.hzgsettings.hzglogo.toggle[2] == nil then
+		hud.hzgsettings.hzglogo.toggle[2] = true
+	end
+	
+	if hud.hzgsettings.hzglogo.pos[1] == nil then
+		hud.hzgsettings.hzglogo.pos[1] = 565
+	end
+	
+	if hud.hzgsettings.hzglogo.pos[2] == nil then
+		hud.hzgsettings.hzglogo.pos[2] = 3
+	end
+	
+	if hud.hzgsettings.hzglogo.alignment == nil then
+		hud.hzgsettings.hzglogo.alignment = 0
+	end
+	
+	if hud.hzgsettings.hzglogo.color == nil then
+		hud.hzgsettings.hzglogo.color = -1
+	end
+	
+	if hud.hzgsettings.hzglogo.customstring == nil then
+		hud.hzgsettings.hzglogo.customstring = 'akacross.net'
+	end]]
+	
+	displayHud(hud.defaulthud) 
 	createfonts()
 	load_textures()
 	icons_script()
 	fixwidth()
 
 	repeat wait(0) until isSampAvailable()
+	
+	for i = 0, 6 do
+		hztextdraws(i)
+	end
+	local hptext_res, hptext = getSampfuncsGlobalVar("hptext")
+	local armortext_res, armortext = getSampfuncsGlobalVar("armortext")
+	if not hptext_res then
+		setSampfuncsGlobalVar("hptext", 100)
+	end
+	if not armortext_res then
+		setSampfuncsGlobalVar("armortext", 100)
+	end
 	
 	if hud.autoupdate then
 		update_script()
@@ -279,16 +422,31 @@ function main()
 	lua_thread.create(function()
 		while true do wait(15)
 		
+			if not sampTextdrawIsExists(2053) then
+				if 2053 ~= 0 then
+					setSampfuncsGlobalVar("armortext", 0)
+				end
+			end
+		
+			for i = 0, 3000 do
+				if sampTextdrawIsExists(i) then
+					local textdraw1_res, textdraw1 = getSampfuncsGlobalVar("textdraw1")
+					if i == textdraw1 and textdraw1_res then
+						local _, _, color = sampTextdrawGetLetterSizeAndColor(i)
+						hud.color[8][8] = color
+					end
+				end
+			end
+		
 			hudmove()
-			hztextdraws()
 			changeRadarPosAndSize(hud.radar.pos[1], hud.radar.pos[2], hud.radar.size[1], hud.radar.size[2])
 			changeRadarColor(hud.radar.color)
 		
+			local hptext_res, hptext = getSampfuncsGlobalVar("hptext")
+			local armortext_res, armortext = getSampfuncsGlobalVar("armortext")
 			local res, id = sampGetPlayerIdByCharHandle(ped)
 			if res then
-				local hp, weap, color, vehhp, turfname, localtime, servertime, speed, carName, badge = getCharHealth(ped), getCurrentCharWeapon(ped), sampGetPlayerColor(id), 0, '', '', '', '', '', ''
-
-				for k, v in pairs(hud.serverhp) do if hp >= v then hp = hp - v end end 
+				local weap, color, vehhp, turfname, localtime, servertime, speed, carName, badge = getCurrentCharWeapon(ped), sampGetPlayerColor(id), 0, '', '', '', '', '', ''
 				
 				if isCharInAnyCar(ped) then 
 					local vehid = storeCarCharIsInNoSave(ped) 
@@ -315,22 +473,8 @@ function main()
 					end 
 				end
 				
-				for i = 0, 3000 do
-					if sampTextdrawIsExists(i) then
-						local posX, posY = sampTextdrawGetPos(i)					
-						local _, _, sizeX, sizeY = sampTextdrawGetBoxEnabledColorAndSize(i)
-						if posX == 577 and posY == 24 then
-							servertime = sampTextdrawGetString(i)
-						elseif posX == 86 and sizeX == 1280 and sizeY == 1280 then
-							turfname = sampTextdrawGetString(i)
-							local _, _, color = sampTextdrawGetLetterSizeAndColor(i)
-							hud.color[8][8] = color
-						end
-					end
-				end
-				
 				if menu[0] then 
-					value = {{100},{50},{100},{1000},{100},{24,formatammo(50000,7),'Desert Eagle'},{6,formatmoney(1000000)},{'Player_Name', 'Local-Time', 'Server-Time', 'Ping', showfps, 'Direction', 'Location', 'Turf', 'Vehicle Speed', 'Vehicle Name', 'Badge'}}
+					value = {{50},{50},{100},{1000},{100},{24,formatammo(50000,7),'Desert Eagle'},{6,formatmoney(1000000)},{'Player_Name', 'Local-Time', 'Server-Time', 'Ping', showfps, 'Direction', 'Location', 'Turf', 'Vehicle Speed', 'Vehicle Name', 'Badge'}}
 				else 
 					if spec.state and spec.playerid ~= -1 and sampIsPlayerConnected(spec.playerid) then
 						res, pid = sampGetCharHandleBySampPlayerId (spec.playerid)
@@ -369,12 +513,12 @@ function main()
 								{
 									string.format("%s (%d)", sampGetPlayerNickname(spec.playerid), spec.playerid),
 									localtime,
-									servertime,
+									autosave.wwtext,
 									(hud.tog[8][4][2] and 'Ping: ' or '')..sampGetPlayerPing(spec.playerid),
 									showfps,
 									getdirection(pid),
 									getPlayerZoneName(), 
-									turfname, 
+									autosave.turftext, 
 									speed,
 									carName,
 									badge
@@ -383,8 +527,8 @@ function main()
 						end	
 					else
 						value = {
-							{hp},
-							{sampGetPlayerArmor(id)},
+							{hptext},
+							{armortext},
 							{getSprintLevel()},
 							{vehhp},
 							{getWaterLevel()},
@@ -403,12 +547,12 @@ function main()
 							{
 								string.format("%s (%d)", sampGetPlayerNickname(id), id),
 								localtime,
-								servertime,
+								autosave.wwtext,
 								(hud.tog[8][4][2] and 'Ping: ' or '')..sampGetPlayerPing(id),
 								showfps,
 								getdirection(ped),
 								getPlayerZoneName(), 
-								turfname, 
+								autosave.turftext, 
 								speed, 
 								carName, 
 								badge
@@ -435,17 +579,11 @@ function main()
 end
 
 imgui.OnInitialize(function()
-	apply_custom_style() -- apply custom style
+	apply_custom_style()
 
-	loadIconicFont(18, ti.min_range, ti.max_range, ti.get_font_data_base85())
-	loadIconicFont(14, faicons.min_range, faicons.max_range, faicons.get_font_data_base85())
-
-	local config = imgui.ImFontConfig()
-    config.MergeMode = true
-    local glyph_ranges = imgui.GetIO().Fonts:GetGlyphRangesCyrillic()
-    local iconRanges = imgui.new.ImWchar[3](fa.min_range, fa.max_range, 0)
-    imgui.GetIO().Fonts:AddFontFromFileTTF('trebucbd.ttf', 14.0, nil, glyph_ranges)
-    icon = imgui.GetIO().Fonts:AddFontFromFileTTF('moonloader/resource/fonts/fa-solid-900.ttf', 14.0, config, iconRanges)
+	loadIconicFont(false, 14.0, faicons.min_range, faicons.max_range, faicons.get_font_data_base85())
+	loadIconicFont(true, 14.0, fa.min_range, fa.max_range, 'moonloader/resource/fonts/fa-solid-900.ttf')
+	loadIconicFont(false, 14.0, ti.min_range, ti.max_range, ti.get_font_data_base85())
 
 	imgui.GetIO().ConfigWindowsMoveFromTitleBarOnly = true
 	imgui.GetIO().IniFilename = nil
@@ -534,7 +672,7 @@ function()
 			end
 			
 			imgui.SetCursorPos(imgui.ImVec2(385,5))
-			if imgui.CustomButton(ti.ICON_GPS .. ' Radar',
+			if imgui.CustomButton(ti.ICON_GPS .. ' Screen',
 				mid == 9 and imgui.ImVec4(0.56, 0.16, 0.16, 1) or imgui.ImVec4(0.16, 0.16, 0.16, 0.9),
 				imgui.ImVec4(0.40, 0.12, 0.12, 1), 
 				imgui.ImVec4(0.30, 0.08, 0.08, 1), 
@@ -543,7 +681,7 @@ function()
 			end
 			
 			imgui.SetCursorPos(imgui.ImVec2(385,31))
-			if imgui.CustomButton(fa.ICON_FA_OBJECT_GROUP .. ' Groups',
+			if imgui.CustomButton(fa.ICON_FA_OBJECT_GROUP .. ' Move',
 				mid == 10 and imgui.ImVec4(0.56, 0.16, 0.16, 1) or imgui.ImVec4(0.16, 0.16, 0.16, 0.9),
 				imgui.ImVec4(0.40, 0.12, 0.12, 1), 
 				imgui.ImVec4(0.30, 0.08, 0.08, 1), 
@@ -609,7 +747,9 @@ function()
 				imgui.ImVec2(75, 75)) then
 				blankIni_hud()
 				createfonts() 
-				hztextdraws()
+				for i = 0, 6 do
+					hztextdraws(i)
+				end
 			end
 			if imgui.IsItemHovered() then
 				imgui.SetTooltip('Reset the INI to default settings')
@@ -782,78 +922,221 @@ function()
 					end
 					imgui.NewLine()
 				end
-			elseif mid == 9 then	
-				imgui.BeginChild("##bgTwo", imgui.ImVec2(345, 140), false)
-					imgui.PushItemWidth(115) 
-					color = new.float[3](hex2rgb(hud.radar.color))
-					if imgui.ColorEdit3('##color', color, imgui.ColorEditFlags.NoInputs + imgui.ColorEditFlags.NoLabel) then 
-						hud.radar.color = join_argb(255, color[0] * 255, color[1] * 255, color[2] * 255) 
-					end
-					imgui.SameLine() 
-					imgui.Text(u8'Radar Color') 
-					imgui.PopItemWidth()
-					imgui.SameLine() 
-					if imgui.Checkbox('Compass', new.bool(hud.radar.compass)) then 
-						if hud.radar.compass then
-							for i = 1, 4 do
-								removeBlip(assets.compass[i])
-							end
-							hud.radar.compass = false
-						else
-							assets.compass[1] = addSpriteBlipForCoord(0.0, 999999.0, 23.0, 24) --  N
-							assets.compass[2] = addSpriteBlipForCoord(999999.0, 0.0, 23.0, 34) -- S 
-							assets.compass[3] = addSpriteBlipForCoord(-999999.0, 0.0, 23.0, 46) -- W
-							assets.compass[4] = addSpriteBlipForCoord(0.0, -999999.0, 23.0, 38) -- E
-							hud.radar.compass = true
+			elseif mid == 9 then
+				local color = new.float[3](hex2rgb(hud.radar.color))
+				if imgui.ColorEdit3('##color', color, imgui.ColorEditFlags.NoInputs + imgui.ColorEditFlags.NoLabel) then 
+					hud.radar.color = join_argb(255, color[0] * 255, color[1] * 255, color[2] * 255) 
+				end
+				imgui.SameLine() 
+				imgui.Text(u8'Radar Color') 
+				imgui.SameLine() 
+				if imgui.Checkbox('Compass', new.bool(hud.radar.compass)) then 
+					if hud.radar.compass then
+						for i = 1, 4 do
+							removeBlip(assets.compass[i])
 						end
+						hud.radar.compass = false
+					else
+						assets.compass[1] = addSpriteBlipForCoord(0.0, 999999.0, 23.0, 24) --  N
+						assets.compass[2] = addSpriteBlipForCoord(999999.0, 0.0, 23.0, 34) -- S 
+						assets.compass[3] = addSpriteBlipForCoord(-999999.0, 0.0, 23.0, 46) -- W
+						assets.compass[4] = addSpriteBlipForCoord(0.0, -999999.0, 23.0, 38) -- E
+						hud.radar.compass = true
 					end
+				end
+				imgui.SameLine() 
+				if imgui.Checkbox('Default Hud', new.bool(hud.defaulthud)) then 
+					hud.defaulthud = not hud.defaulthud
+					if hud.defaulthud then
+						displayHud(hud.defaulthud)
+					else
+						displayHud(hud.defaulthud)
+					end
+				end
 					
-					imgui.Text(u8'Left/Right') 
-					imgui.SameLine(90) 
-					imgui.Text(u8'Up/Down') 
-					imgui.SameLine(180) 
-					imgui.Text(u8'Width') 
-					imgui.SameLine(250) 
-					imgui.Text(u8'Height') 
+				imgui.NewLine()
+				imgui.Text(u8'Radar Position and Size') 
+					
+				imgui.Text(u8'Left/Right') 
+				imgui.SameLine(90) 
+				imgui.Text(u8'Up/Down') 
+				imgui.SameLine(180) 
+				imgui.Text(u8'Width') 
+				imgui.SameLine(250) 
+				imgui.Text(u8'Height') 
 				
-					imgui.PushItemWidth(160) 
-					local radarpos = new.float[2](hud.radar.pos[1], hud.radar.pos[2])
-					if imgui.DragFloat2('##move2', radarpos, 0.1, 20 * -2000.0, 20 * 2000.0, "%.1f") then 
-						hud.radar.pos[1] = radarpos[0] 
-						hud.radar.pos[2] = radarpos[1] 
-					end 
-					imgui.SameLine()
-					local radarsize = new.float[2](hud.radar.size[1], hud.radar.size[2])
-					if imgui.DragFloat2('##move3', radarsize, 0.1, 20 * -2000.0, 20 * 2000.0, "%.1f") then 
-						hud.radar.size[1] = radarsize[0] 
-						hud.radar.size[2] = radarsize[1] 
-					end 
-					imgui.PopItemWidth()
+				imgui.PushItemWidth(160) 
+				local radarpos = new.float[2](hud.radar.pos[1], hud.radar.pos[2])
+				if imgui.DragFloat2('##move2', radarpos, 0.1, 20 * -2000.0, 20 * 2000.0, "%.1f") then 
+					hud.radar.pos[1] = radarpos[0] 
+					hud.radar.pos[2] = radarpos[1] 
+				end 
+				imgui.SameLine()
+				local radarsize = new.float[2](hud.radar.size[1], hud.radar.size[2])
+				if imgui.DragFloat2('##move3', radarsize, 0.1, 20 * -2000.0, 20 * 2000.0, "%.1f") then 
+					hud.radar.size[1] = radarsize[0] 
+					hud.radar.size[2] = radarsize[1] 
+				end 
+				imgui.PopItemWidth()
+			
+			
+				imgui.NewLine() 
+				imgui.Text(u8'HZG Settings:') 
 				
-					imgui.NewLine() 
-					imgui.SameLine(3) 
-					imgui.Text(u8'HZG Settings:') 
-						
-					if imgui.Checkbox('Turf', new.bool(hud.hzgsettings.turf)) then 
-						hud.hzgsettings.turf = not hud.hzgsettings.turf
-					end
-					imgui.SameLine() 
-					if imgui.Checkbox('WW', new.bool(hud.hzgsettings.wristwatch)) then 
-						hud.hzgsettings.wristwatch = not hud.hzgsettings.wristwatch
-					end
-					imgui.SameLine() 
-					if imgui.Checkbox('Logo', new.bool(hud.hzgsettings.hzglogo)) then 
-						hud.hzgsettings.hzglogo = not hud.hzgsettings.hzglogo
-					end
-					imgui.SameLine() 
-					if imgui.Checkbox('Turf Owner', new.bool(hud.hzgsettings.turfowner)) then 
-						hud.hzgsettings.turfowner = not hud.hzgsettings.turfowner
-					end
-					imgui.SameLine() 
-					if imgui.Checkbox('HP Bar', new.bool(hud.hzgsettings.hpbar)) then 
-						hud.hzgsettings.hpbar = not hud.hzgsettings.hpbar
-					end
-				imgui.EndChild()
+				--turf
+				if imgui.Checkbox('Turf', new.bool(hud.hzgsettings.turf.toggle[1])) then 
+					hud.hzgsettings.turf.toggle[1] = not hud.hzgsettings.turf.toggle[1]
+					hztextdraws(0)
+				end
+				imgui.SameLine() 
+				
+				imgui.PushItemWidth(68)
+				local pos = new.float[1](hud.hzgsettings.turf.pos[1])
+				if imgui.DragFloat('##turf1', pos, 1, 12 * 2000.0, 12 * 2000.0, "%.1f") then 
+					hud.hzgsettings.turf.pos[1] = pos[0] 
+					hztextdraws(0)
+				end 
+				imgui.SameLine()
+				local pos2 = new.float[1](hud.hzgsettings.turf.pos[2])
+				if imgui.DragFloat('##turf2', pos2, 1, 12 * 2000.0, 12 * 2000.0, "%.1f") then 
+					hud.hzgsettings.turf.pos[2] = pos2[0] 
+					hztextdraws(0)
+				end 
+				imgui.PopItemWidth()
+				
+				--turfowner
+				if imgui.Checkbox('Turf Owner', new.bool(hud.hzgsettings.turfowner.toggle[1])) then 
+					hud.hzgsettings.turfowner.toggle[1] = not hud.hzgsettings.turfowner.toggle[1]
+					hztextdraws(1)
+				end
+				imgui.SameLine() 
+				
+				local colorturf = new.float[3](hex2rgb(hud.hzgsettings.turfowner.color))
+				if imgui.ColorEdit3('##colorturfowner', colorturf, imgui.ColorEditFlags.NoInputs + imgui.ColorEditFlags.NoLabel) then 
+					hud.hzgsettings.turfowner.color = join_argb(255, colorturf[0] * 255, colorturf[1] * 255, colorturf[2] * 255) 
+					hztextdraws(1)
+				end
+				imgui.SameLine()
+				
+				imgui.PushItemWidth(68)
+				local pos = new.float[1](hud.hzgsettings.turfowner.pos[1])
+				if imgui.DragFloat('##turfowner1', pos, 1, 12 * 2000.0, 12 * 2000.0, "%.1f") then 
+					hud.hzgsettings.turfowner.pos[1] = pos[0] 
+					hztextdraws(1)
+				end 
+				imgui.SameLine()
+				local pos2 = new.float[1](hud.hzgsettings.turfowner.pos[2])
+				if imgui.DragFloat('##turfowner2', pos2, 1, 12 * 2000.0, 12 * 2000.0, "%.1f") then 
+					hud.hzgsettings.turfowner.pos[2] = pos2[0] 
+					hztextdraws(1)
+				end 
+				imgui.PopItemWidth()
+					
+				--wristwatch
+				if imgui.Checkbox('WW', new.bool(hud.hzgsettings.wristwatch.toggle[1])) then 
+					hud.hzgsettings.wristwatch.toggle[1] = not hud.hzgsettings.wristwatch.toggle[1]
+					hztextdraws(2)
+				end
+				
+				imgui.SameLine()
+				local colorturf = new.float[3](hex2rgb(hud.hzgsettings.wristwatch.color))
+				if imgui.ColorEdit3('##colorWW', colorturf, imgui.ColorEditFlags.NoInputs + imgui.ColorEditFlags.NoLabel) then 
+					hud.hzgsettings.wristwatch.color = join_argb(255, colorturf[0] * 255, colorturf[1] * 255, colorturf[2] * 255) 
+					hztextdraws(2)
+				end
+				imgui.SameLine()
+				
+				imgui.PushItemWidth(68)
+				local pos = new.float[1](hud.hzgsettings.wristwatch.pos[1])
+				if imgui.DragFloat('##WW1', pos, 1, 12 * 2000.0, 12 * 2000.0, "%.1f") then 
+					hud.hzgsettings.wristwatch.pos[1] = pos[0] 
+					hztextdraws(2)
+				end 
+				imgui.SameLine()
+				local pos2 = new.float[1](hud.hzgsettings.wristwatch.pos[2])
+				if imgui.DragFloat('##WW2', pos2, 1, 12 * 2000.0, 12 * 2000.0, "%.1f") then 
+					hud.hzgsettings.wristwatch.pos[2] = pos2[0] 
+					hztextdraws(2)
+				end 
+				imgui.PopItemWidth()
+					
+				--hzglogo
+				if imgui.Checkbox('Logo', new.bool(hud.hzgsettings.hzglogo.toggle[1])) then 
+					hud.hzgsettings.hzglogo.toggle[1] = not hud.hzgsettings.hzglogo.toggle[1]
+					hztextdraws(3)
+				end
+				imgui.SameLine() 
+				if imgui.Checkbox('Custom Logo', new.bool(hud.hzgsettings.hzglogo.toggle[2])) then 
+					hud.hzgsettings.hzglogo.toggle[2] = not hud.hzgsettings.hzglogo.toggle[2]
+					hztextdraws(3)
+				end
+				imgui.SameLine()
+				imgui.PushItemWidth(95) 
+				local text = new.char[30](hud.hzgsettings.hzglogo.customstring)
+				if imgui.InputText('##logochangehzglogo', text, sizeof(text), imgui.InputTextFlags.EnterReturnsTrue) then
+					hud.hzgsettings.hzglogo.customstring = u8:decode(str(text))
+					hztextdraws(3)		
+				end
+				imgui.PopItemWidth()
+					
+				local color2 = new.float[3](hex2rgb(hud.hzgsettings.hzglogo.color))
+				if imgui.ColorEdit3('##colorhzglogo', color2, imgui.ColorEditFlags.NoInputs + imgui.ColorEditFlags.NoLabel) then 
+					hud.hzgsettings.hzglogo.color = join_argb(255, color2[0] * 255, color2[1] * 255, color2[2] * 255) 
+					hztextdraws(3)
+				end
+				imgui.SameLine()
+				imgui.PushItemWidth(68)
+				local pos = new.float[1](hud.hzgsettings.hzglogo.pos[1])
+				if imgui.DragFloat('##hzglogo1', pos, 1, 12 * 2000.0, 12 * 2000.0, "%.1f") then 
+					hud.hzgsettings.hzglogo.pos[1] = pos[0] 
+					hztextdraws(3)
+				end 
+				imgui.SameLine()
+				local pos2 = new.float[1](hud.hzgsettings.hzglogo.pos[2])
+				if imgui.DragFloat('##hzglogo2', pos2, 1, 12 * 2000.0, 12 * 2000.0, "%.1f") then 
+					hud.hzgsettings.hzglogo.pos[2] = pos2[0] 
+					hztextdraws(3)
+				end 
+				imgui.PopItemWidth()
+					
+				--hpbar
+				if imgui.Checkbox('HP Bar', new.bool(hud.hzgsettings.hpbar.toggle[1])) then 
+					hud.hzgsettings.hpbar.toggle[1] = not hud.hzgsettings.hpbar.toggle[1]
+					hztextdraws(4)
+				end
+				
+				imgui.SameLine()
+				local color4 = new.float[3](hex2rgb(hud.hzgsettings.hpbar.color1))
+				if imgui.ColorEdit3('##colorhpbar1', color4, imgui.ColorEditFlags.NoInputs + imgui.ColorEditFlags.NoLabel) then 
+					hud.hzgsettings.hpbar.color1 = join_argb(255, color4[0] * 255, color4[1] * 255, color4[2] * 255) 
+					hztextdraws(4)
+				end
+					
+				imgui.SameLine()
+				local color5 = new.float[3](hex2rgb(hud.hzgsettings.hpbar.color2))
+				if imgui.ColorEdit3('##colorhpbar2', color5, imgui.ColorEditFlags.NoInputs + imgui.ColorEditFlags.NoLabel) then 
+					hud.hzgsettings.hpbar.color2 = join_argb(255, color5[0] * 255, color5[1] * 255, color5[2] * 255) 
+					hztextdraws(4)
+				end
+					
+				imgui.SameLine()
+				local color6 = new.float[3](hex2rgb(hud.hzgsettings.hpbar.color3))
+				if imgui.ColorEdit3('##colorhpbar3', color6, imgui.ColorEditFlags.NoInputs + imgui.ColorEditFlags.NoLabel) then 
+					hud.hzgsettings.hpbar.color3 = join_argb(255, color6[0] * 255, color6[1] * 255, color6[2] * 255) 
+					hztextdraws(4)
+				end
+				
+				--hptext
+				if imgui.Checkbox('HP Text', new.bool(hud.hzgsettings.hptext.toggle[1])) then 
+					hud.hzgsettings.hptext.toggle[1] = not hud.hzgsettings.hptext.toggle[1]
+					hztextdraws(5)
+				end
+				
+				--armortext
+				if imgui.Checkbox('Armor Text', new.bool(hud.hzgsettings.armortext.toggle[1])) then 
+					hud.hzgsettings.armortext.toggle[1] = not hud.hzgsettings.armortext.toggle[1]
+					hztextdraws(6)
+				end
 			elseif mid == 10 then
 					for k, v in ipairs(hud.pos) do
 						imgui.PushItemWidth(120) 
@@ -884,22 +1167,24 @@ function()
 						
 						imgui.SameLine()
 						if imgui.Button(v.move and u8"Undo##"..k or u8"Move##"..k) then
-							v.move = not v.move
-							if v.move then
-								sampAddChatMessage(string.format('%s: Press {FF0000}%s {FFFFFF}to save the pos.', script.this.name, vk.id_to_name(VK_LBUTTON)), -1) 
-								assets.temp_pos.x = v.x
-								assets.temp_pos.y = v.y
-								if debug_tog then
-									print(assets.temp_pos.x.. assets.temp_pos.y)
+							if not move or v.move then
+								v.move = not v.move
+								if v.move then
+									sampAddChatMessage(string.format('%s: Press {FF0000}%s {FFFFFF}to save the pos.', script.this.name, vk.id_to_name(VK_LBUTTON)), -1) 
+									assets.temp_pos.x = v.x
+									assets.temp_pos.y = v.y
+									if debug_tog then
+										print(assets.temp_pos.x.. assets.temp_pos.y)
+									end
+									move = true
+								else
+									v.x = assets.temp_pos.x
+									v.y = assets.temp_pos.y
+									if debug_tog then
+										print(assets.temp_pos.x.. assets.temp_pos.y)
+									end
+									move = false
 								end
-								move = true
-							else
-								v.x = assets.temp_pos.x
-								v.y = assets.temp_pos.y
-								if debug_tog then
-									print(assets.temp_pos.x.. assets.temp_pos.y)
-								end
-								move = false
 							end
 						end
 						
@@ -983,7 +1268,7 @@ function onD3DPresent()
 						hud.color[i][1][1], 
 						hud.color[i][1][2],
 						hud.color[i][1][3]
-					) 
+					)
 				end
 				if hud.tog[i][2] then 
 					renderfont(
@@ -995,7 +1280,7 @@ function onD3DPresent()
 						value[i][1], 
 						hud.alignfont[i][1], 
 						hud.color[i][2]
-					) 
+					)
 				end
 			elseif i == 6 then
 				if hud.tog[i][1] then 
@@ -1007,7 +1292,7 @@ function onD3DPresent()
 						value[i][1], 
 						hud.color[i][1][1], 
 						hud.color[i][1][2]
-					) 
+					)
 				end
 				if hud.tog[i][2] and value[i][1] ~= 0 then 
 					renderfont(
@@ -1096,6 +1381,53 @@ function onWindowMessage(msg, wparam, lparam)
     end
 end
 
+function sampev.onSendSpawn()
+	if blankini then
+		chud()
+		blankini = false
+	end
+end
+
+function chud()
+	sampSendChat("/chud 1")
+	lua_thread.create(function() 
+		servermessagebool = true
+		local result, playerid = sampGetPlayerIdByCharHandle(ped) 
+		if result then
+			servermessagebool = true
+			wait(200 + sampGetPlayerPing(playerid))
+			servermessagebool = false
+		end
+	end)
+end
+
+function sampev.onServerMessage(color, text)
+	if text:find("turns off their wristwatch.") then
+		autosave.wwtext = ''
+	end
+	if text:find("You have toggled off turfs on your radar/map.") then
+		setSampfuncsGlobalVar("turftext", '')
+		autosave.turftext = ''
+	end
+
+	if text:find("You have set your custom HUD style to ") then
+		textdrawbool[8] = false
+		textdrawbool[9] = false
+	end
+	
+	if text:find("You have set your custom HUD style to 1.") then
+		if servermessagebool then
+			return false
+		end
+	end
+	
+	if text:find("You have disabled your custom HUD.") then
+		sampAddChatMessage('You cannot disable custom HUD.', -1)
+		chud()
+		return false
+	end
+end
+
 function sampev.onTogglePlayerSpectating(state)
     if not state then
         spec.playerid = -1
@@ -1122,43 +1454,359 @@ function sampev.onSendCommand(command)
 end
 
 function sampev.onShowTextDraw(id, data)
-	if data.position.x == 86 and data.lineHeight == 1280 and data.lineWidth == 1280 and not hud.hzgsettings.turf then -- hz turf
-		data.letterWidth = 0
-		data.letterHeight = 0
+	if data.position.x == 86 and data.position.y == 434 and not textdrawbool[1] then
+		setSampfuncsGlobalVar("textdraw1", id)
+		textdrawbool[1] = true
+	end
+	if data.position.x == 86 and data.position.y == 423 and not textdrawbool[2] then
+		setSampfuncsGlobalVar("textdraw2", id)
+		textdrawbool[2] = true
+	end
+	if data.position.x == 577 and data.position.y == 24 and not textdrawbool[3] then
+		setSampfuncsGlobalVar("textdraw3", id)
+		textdrawbool[3] = true
+	end
+	if data.position.x == 562 and data.position.y == 3 and not textdrawbool[4] then
+		setSampfuncsGlobalVar("textdraw4", id)
+		textdrawbool[4] = true
+	end
+	if math.floor(data.position.x) == 610 and math.floor(data.position.y) == 68 and data.boxColor == -16777216 and not textdrawbool[5] then 
+		setSampfuncsGlobalVar("textdraw5", id)
+		textdrawbool[5] = true
+	end
+	if math.floor(data.position.x) == 608 and math.floor(data.position.y) == 70 and data.boxColor == -15725478 and not textdrawbool[6] then 
+		setSampfuncsGlobalVar("textdraw6", id)
+		textdrawbool[6] = true
+	end
+	if math.floor(data.position.x) <= 608 and math.floor(data.position.y) == 70 and data.boxColor == -14608203 and not textdrawbool[7] then 
+		setSampfuncsGlobalVar("textdraw7", id)
+		textdrawbool[7] = true
+	end
+	if (data.position.x == 577 or data.position.x == 611) and data.position.y == 65 and not textdrawbool[8] then 
+		setSampfuncsGlobalVar("textdraw8", id)
+		textdrawbool[8] = true
+	end
+	if (data.position.x == 577 or data.position.x == 611) and data.position.y == 43 and not textdrawbool[9] then 
+		setSampfuncsGlobalVar("textdraw9", id)
+		print(id)
+		textdrawbool[9] = true
+	end
+	
+	local textdraw1_res, textdraw1 = getSampfuncsGlobalVar("textdraw1")
+	if id == textdraw1 and textdraw1_res then
+		if hud.hzgsettings.turf.toggle[1] then
+			autosave.turftext = data.text
+			data.text = data.text
+		else
+			autosave.turftext = data.text
+			data.text = ''
+		end
+		data.position.x = hud.hzgsettings.turf.pos[1]
+		data.position.y = hud.hzgsettings.turf.pos[2]
+		return {id, data}
+	end
+
+	local textdraw2_res, textdraw2 = getSampfuncsGlobalVar("textdraw2")
+	if id == textdraw2 and textdraw2_res then
+		data.position.x = hud.hzgsettings.turfowner.pos[1]
+		data.position.y = hud.hzgsettings.turfowner.pos[2]
+		if hud.hzgsettings.turfowner.toggle[1] then
+			data.text = 'TURF OWNER:'
+		else
+			data.text = ''
+			
+		end
+		lua_thread.create(function() 
+			wait(1)
+			sampTextdrawSetLetterSizeAndColor(id, data.letterWidth, data.letterHeight, hud.hzgsettings.turfowner.color)
+		end)
+		return {id, data}
+	end
+
+	local textdraw3_res, textdraw3 = getSampfuncsGlobalVar("textdraw3")
+	if id == textdraw3 and textdraw3_res then
+		data.position.x = hud.hzgsettings.wristwatch.pos[1]
+		data.position.y = hud.hzgsettings.wristwatch.pos[2]
+		if hud.hzgsettings.wristwatch.toggle[1] then
+			autosave.wwtext = data.text
+			data.text = data.text
+		else
+			autosave.wwtext = data.text
+			data.text = ''
+		end
+		lua_thread.create(function() 
+			wait(1)
+			sampTextdrawSetLetterSizeAndColor(id, data.letterWidth, data.letterHeight, hud.hzgsettings.wristwatch.color)
+		end)
+		return {id, data}
+	end
+
+	local textdraw4_res, textdraw4 = getSampfuncsGlobalVar("textdraw4")
+	if id == textdraw4 and textdraw4_res then
+		if hud.hzgsettings.hzglogo.toggle[1] then
+			data.text = hud.hzgsettings.hzglogo.toggle[2] and hud.hzgsettings.hzglogo.customstring or 'hzgaming.net'
+		else
+			data.text = ''
+		end
+		data.position.x = hud.hzgsettings.hzglogo.pos[1]
+		data.position.y = hud.hzgsettings.hzglogo.pos[2]
+		
+		lua_thread.create(function() 
+			wait(1)
+			sampTextdrawSetLetterSizeAndColor(id, data.letterWidth, data.letterHeight, hud.hzgsettings.hzglogo.color)
+		end)
+		return {id, data}
+	end
+
+	local textdraw5_res, textdraw5 = getSampfuncsGlobalVar("textdraw5")
+	if id == textdraw5 and textdraw5_res then
+		if hud.hzgsettings.hpbar.toggle[1] then
+			data.text = ''
+		else
+			data.text = ''
+		end
+		
+		lua_thread.create(function() 
+			wait(1)
+			sampTextdrawSetBoxColorAndSize(id, 1, hud.hzgsettings.hpbar.color1, 543.75, 0)
+		end)
+		return {id, data}
+	end
+
+	local textdraw6_res, textdraw6 = getSampfuncsGlobalVar("textdraw6")
+	if id == textdraw6 and textdraw6_res then
+		if hud.hzgsettings.hpbar.toggle[1] then
+			data.text = ''
+		else
+			data.text = ''
+		end
+		lua_thread.create(function() 
+			wait(1)
+			sampTextdrawSetBoxColorAndSize(id, 1, hud.hzgsettings.hpbar.color2, 545.75, 0)
+		end)
+		return {id, data}
+	end
+
+	local textdraw7_res, textdraw7 = getSampfuncsGlobalVar("textdraw7")
+	if id == textdraw7 and textdraw7_res then
+		if hud.hzgsettings.hpbar.toggle[1] then
+			data.text = ''
+		else
+			data.text = ''
+		end
+		lua_thread.create(function() 
+			wait(1)
+			sampTextdrawSetBoxColorAndSize(id, 1, hud.hzgsettings.hpbar.color3, 545.75, 0)
+		end)
 		return {id, data}
 	end
 	
-	if data.position.x == 577 and data.position.y == 24 and not hud.hzgsettings.wristwatch then -- hz ww
-		data.letterWidth = 0
-		data.letterHeight = 0
+	local textdraw8_res, textdraw8 = getSampfuncsGlobalVar("textdraw8")
+	if id == textdraw8 and textdraw8_res then
+		if hud.hzgsettings.hptext.toggle[1] then
+			setSampfuncsGlobalVar("hptext", data.text)
+		else
+			setSampfuncsGlobalVar("hptext", data.text)
+			data.text = ''
+		end
+		lua_thread.create(function() 
+			wait(1)
+			sampTextdrawSetLetterSizeAndColor(id, data.letterWidth, data.letterHeight, hud.hzgsettings.hptext.color)
+		end)
 		return {id, data}
 	end
 	
-	if data.text == 'hzgaming.net' and not hud.hzgsettings.hzglogo then 
-		data.letterWidth = 0
-		data.letterHeight = 0
+	local textdraw9_res, textdraw9 = getSampfuncsGlobalVar("textdraw9")
+	if id == textdraw9 and textdraw9_res then
+		if hud.hzgsettings.armortext.toggle[1] then
+			setSampfuncsGlobalVar("armortext", data.text)
+		else
+			setSampfuncsGlobalVar("armortext", data.text)
+			data.text = ''
+		end
+		lua_thread.create(function() 
+			wait(1)
+			sampTextdrawSetLetterSizeAndColor(id, data.letterWidth, data.letterHeight, hud.hzgsettings.armortext.color)
+		end)
 		return {id, data}
 	end
+end
+
+function sampev.onTextDrawSetString(id, text)
+	local posX, posY = sampTextdrawGetPos(id)
 	
-	if data.text == 'TURF OWNER:' and not hud.hzgsettings.turfowner then 
-		data.letterWidth = 0
-		data.letterHeight = 0
-		return {id, data}
+	if posX == 86 and posY == 434 and not textdrawbool[1] then
+		setSampfuncsGlobalVar("textdraw1", id)
+		textdrawbool[1] = true
 	end
 	
-	if math.floor(data.position.x) == 610 and math.floor(data.position.y) == 68 and data.boxColor == -16777216 and not hud.hzgsettings.hpbar then 
-		data.text = ''
-		return {id, data}
+	if posX == 577 and posY == 24 and not textdrawbool[3] then
+		setSampfuncsGlobalVar("textdraw3", id)
+		textdrawbool[3] = true
+	end
+
+	if (posX == 577 or posX == 611) and posY == 65 and not textdrawbool[8] then 
+		setSampfuncsGlobalVar("textdraw8", id)
+		textdrawbool[8] = true
+	end
+	if (posX == 577 or posX == 611) and posY == 43 and not textdrawbool[9] then 
+		setSampfuncsGlobalVar("textdraw9", id)
+		textdrawbool[9] = true
+	end
+
+	local textdraw1_res, textdraw1 = getSampfuncsGlobalVar("textdraw1")
+	if id == textdraw1 and textdraw1_res then
+		if hud.hzgsettings.turf.toggle[1] then
+			setSampfuncsGlobalVar("turftext", text)
+			autosave.turftext = text
+			text = text
+		else	
+			setSampfuncsGlobalVar("turftext", text)
+			autosave.turftext = text
+			text = ''
+		end
+		return {id, text}
 	end
 	
-	if math.floor(data.position.x) == 608 and math.floor(data.position.y) == 70 and data.boxColor == -15725478 and not hud.hzgsettings.hpbar then 
-		data.text = ''
-		return {id, data}
+	local textdraw3_res, textdraw3 = getSampfuncsGlobalVar("textdraw3")
+	if id == textdraw3 and textdraw3_res then
+		if hud.hzgsettings.wristwatch.toggle[1] then
+			autosave.wwtext = text
+			text = text
+		else
+			autosave.wwtext = text
+			text = ''
+		end
+		return {id, text}
 	end
 	
-	if math.floor(data.position.x) <= 608 and math.floor(data.position.y) == 70 and data.boxColor == -14608203 and not hud.hzgsettings.hpbar then 
-		data.text = ''
-		return {id, data}
+	local textdraw8_res, textdraw8 = getSampfuncsGlobalVar("textdraw8")
+	if id == textdraw8 and textdraw8_res then
+		if hud.hzgsettings.hptext.toggle[1] then
+			setSampfuncsGlobalVar("hptext", text)
+		else
+			setSampfuncsGlobalVar("hptext", text)
+			text = ''
+		end
+		return {id, text}
+	end
+	
+	local textdraw9_res, textdraw9 = getSampfuncsGlobalVar("textdraw9")
+	if id == textdraw9 and textdraw9_res then
+		if hud.hzgsettings.armortext.toggle[1] then
+			setSampfuncsGlobalVar("armortext", text)
+		else
+			setSampfuncsGlobalVar("armortext", text)
+			text = ''
+		end
+		return {id, text}
+	end
+end
+
+function hztextdraws(id)
+	for i = 0, 4000 do
+		if sampTextdrawIsExists(i) then
+			local posX, posY = sampTextdrawGetPos(i)	
+			local box, bcolor, sizeX, sizeY = sampTextdrawGetBoxEnabledColorAndSize(i)
+			local letSizeX, letSizeY, color = sampTextdrawGetLetterSizeAndColor(i)
+			local text = sampTextdrawGetString(i)
+			local textdraw1_res, textdraw1 = getSampfuncsGlobalVar("textdraw1")
+			if i == textdraw1 and textdraw1_res and id == 0 then
+				sampTextdrawSetPos(i, hud.hzgsettings.turf.pos[1], hud.hzgsettings.turf.pos[2])
+				if hud.hzgsettings.turf.toggle[1] then
+					sampTextdrawSetString(i, autosave.turftext)
+				else
+					sampTextdrawSetString(i, '')
+				end
+			end
+			local textdraw2_res, textdraw2 = getSampfuncsGlobalVar("textdraw2")
+			if i == textdraw2 and textdraw2_res and id == 1 then
+				sampTextdrawSetPos(i, hud.hzgsettings.turfowner.pos[1], hud.hzgsettings.turfowner.pos[2])
+				sampTextdrawSetLetterSizeAndColor(i, letSizeX, letSizeY, hud.hzgsettings.turfowner.color)
+				if hud.hzgsettings.turfowner.toggle[1] then
+					sampTextdrawSetString(i, 'TURF OWNER:')
+				else	
+					sampTextdrawSetString(i, '')
+				end
+			end
+			local textdraw3_res, textdraw3 = getSampfuncsGlobalVar("textdraw3")
+			if i == textdraw3 and textdraw3_res and id == 2 then
+				sampTextdrawSetPos(i, hud.hzgsettings.wristwatch.pos[1], hud.hzgsettings.wristwatch.pos[2])
+				sampTextdrawSetLetterSizeAndColor(i, letSizeX, letSizeY, hud.hzgsettings.wristwatch.color)
+				if hud.hzgsettings.wristwatch.toggle[1] then
+					sampTextdrawSetString(i, autosave.wwtext)
+				else
+					sampTextdrawSetString(i, '')
+				end
+			end
+			local textdraw4_res, textdraw4 = getSampfuncsGlobalVar("textdraw4")
+			if i == textdraw4 and textdraw4_res and id == 3 then
+				sampTextdrawSetPos(i, hud.hzgsettings.hzglogo.pos[1], hud.hzgsettings.hzglogo.pos[2])
+				sampTextdrawSetLetterSizeAndColor(i, letSizeX, letSizeY, hud.hzgsettings.hzglogo.color)
+				if hud.hzgsettings.hzglogo.toggle[1] then
+					sampTextdrawSetString(i, hud.hzgsettings.hzglogo.toggle[2] and hud.hzgsettings.hzglogo.customstring or 'hzgaming.net')
+				else
+					sampTextdrawSetString(i, '')
+				end
+			end
+			
+			local textdraw5_res, textdraw5 = getSampfuncsGlobalVar("textdraw5")
+			if i == textdraw5 and textdraw5_res and id == 4 then
+				sampTextdrawSetBoxColorAndSize(i, box, hud.hzgsettings.hpbar.color1, sizeX, sizeY)
+				if hud.hzgsettings.hpbar.toggle[1] then
+					sampTextdrawSetString(i, '')
+				else
+					sampTextdrawSetString(i, '')
+				end
+			end
+			local textdraw6_res, textdraw6 = getSampfuncsGlobalVar("textdraw6")
+			if i == textdraw6 and textdraw6_res and id == 4 then
+				sampTextdrawSetBoxColorAndSize(i, box, hud.hzgsettings.hpbar.color2, sizeX, sizeY)
+				if hud.hzgsettings.hpbar.toggle[1] then
+					sampTextdrawSetString(i, '')
+				else
+					sampTextdrawSetString(i, '')
+				end
+			end
+			local textdraw7_res, textdraw7 = getSampfuncsGlobalVar("textdraw7")
+			if i == textdraw7 and textdraw7_res and id == 4 then
+				sampTextdrawSetBoxColorAndSize(i, box, hud.hzgsettings.hpbar.color3, sizeX, sizeY)
+				if hud.hzgsettings.hpbar.toggle[1] then
+					sampTextdrawSetString(i, '')
+				else
+					sampTextdrawSetString(i, '')
+				end
+			end
+			
+			local textdraw8_res, textdraw8 = getSampfuncsGlobalVar("textdraw8")
+			if i == textdraw8 and textdraw8_res and id == 5 then
+				sampTextdrawSetLetterSizeAndColor(i, letSizeX, letSizeY, hud.hzgsettings.hptext.color)
+				if hud.hzgsettings.hptext.toggle[1] then
+					local hptext_res, hptext = getSampfuncsGlobalVar("hptext")
+					if hptext_res then
+						sampTextdrawSetString(i, hptext)
+					end
+				else
+					sampTextdrawSetString(i, '')
+				end
+			end
+			
+			local textdraw9_res, textdraw9 = getSampfuncsGlobalVar("textdraw9")
+			if i == textdraw9 and textdraw9_res and id == 6 then
+				sampTextdrawSetLetterSizeAndColor(i, letSizeX, letSizeY, hud.hzgsettings.armortext.color)
+				if not text then
+					sampTextdrawSetString(i, 0)
+				end
+				if hud.hzgsettings.armortext.toggle[1] then
+					local armortext_res, armortext = getSampfuncsGlobalVar("armortext")
+					if armortext_res then
+						sampTextdrawSetString(i, armortext)
+					end
+				else
+					sampTextdrawSetString(i, '')
+				end
+			end
+		end
 	end
 end
 
@@ -1169,10 +1817,12 @@ function onScriptTerminate(scr, quitGame)
 		end
 		showCursor(false)
 		if hud.autosave then saveIni_hud() end 
+		saveIni_autosave()
 	end
 end
 
 function blankIni_hud()
+	blankini = true
 	hud = table.deepcopy(blank_hud)
 	saveIni_hud()
 	loadIni_hud()
@@ -1193,6 +1843,32 @@ function saveIni_hud()
 		if f then 
 			local f = io.open(cfg_hud, "r+") 
 			f:write(encodeJson(hud,false)) 
+			f:close() 
+		end 
+	end 
+end
+
+function blankIni_autosave()
+	autosave = table.deepcopy(blank_autosave)
+	saveIni_autosave()
+	loadIni_autosave()
+end
+
+function loadIni_autosave() 
+	local f = io.open(cfg_autosave, "r") 
+	if f then 
+		autosave = decodeJson(f:read("*all")) 
+		f:close() 
+	end
+end
+
+function saveIni_autosave()
+	if type(autosave) == "table" then 
+		local f = io.open(cfg_autosave, "w") 
+		f:close() 
+		if f then 
+			local f = io.open(cfg_autosave, "r+") 
+			f:write(encodeJson(autosave,false)) 
 			f:close() 
 		end 
 	end 
@@ -1235,6 +1911,7 @@ function hudmove()
 			for k, v in ipairs(hud.pos) do
 				if v.move then
 					if isKeyJustPressed(VK_LBUTTON) then 
+						inuse = false
 						move = false
 						v.move = false 
 					else 
@@ -1243,7 +1920,25 @@ function hudmove()
 					end
 				end
 			end
-		else	
+		else
+			for k, v in ipairs(hud.pos) do
+				if x >= v.x and x <= v.x + 15 and y >= v.y and y <= v.y + 15 then 
+					if isKeyJustPressed(VK_LBUTTON) and not inuse then 
+						inuse = true 
+						selectedbox[k] = true 
+					end
+				end
+				if selectedbox[k] then
+					if wasKeyReleased(VK_LBUTTON) then
+						inuse = false 
+						selectedbox[k] = false
+					else
+						v.x = x
+						v.y = y
+					end
+				end
+			end
+			
 			for i = 1, 8 do
 				if i >= 1 and i <= 5 then
 					width_text, height_text = renderGetFontDrawTextLength(assets.fid[i][1], value[i][1]), renderGetFontDrawHeight (assets.fid[i][1])
@@ -1430,7 +2125,6 @@ end
 function font_gui(title, id, color, fontsize, font, off1, off2, align, fontflag, move)
 	imgui.Text(title) 
 	
-	
 	imgui.SameLine(155) 
 	imgui.Text('Font') 
 	
@@ -1450,7 +2144,6 @@ function font_gui(title, id, color, fontsize, font, off1, off2, align, fontflag,
 	imgui.PopItemWidth()
 	
 	imgui.SameLine()
-	
 	
 	local choices2 = {'Bold', 'Italics', 'Border', 'Shadow'}
 	imgui.PushItemWidth(60)
@@ -1545,66 +2238,6 @@ function setmaxhp()
 	else 
 		hud.maxvalue[1] = 100 
 	end 
-end
-
-function hztextdraws()
-	for i = 0, 4000 do
-		if sampTextdrawIsExists(i) then
-			local posX, posY = sampTextdrawGetPos(i)	
-			local _, clr, sizeX, sizeY = sampTextdrawGetBoxEnabledColorAndSize(i)
-			local _, _, color = sampTextdrawGetLetterSizeAndColor(i)
-			local text = sampTextdrawGetString(i)
-			if posX == 86 and sizeX == 1280 and sizeY == 1280 and not text ~= 'TURF OWNER:' then
-				if hud.hzgsettings.turf then
-					sampTextdrawSetLetterSizeAndColor(i, 0.23999999463558, 1.2000000476837, color)
-				else
-					sampTextdrawSetLetterSizeAndColor(i, 0, 0, color)
-				end
-			end
-			if posX == 577 and posY == 24 then
-				if hud.hzgsettings.wristwatch then
-					sampTextdrawSetLetterSizeAndColor (i, 0.5, 2, color)
-				else
-					sampTextdrawSetLetterSizeAndColor (i, 0, 0, color)
-				end
-			end
-			if text == 'hzgaming.net' then
-				if hud.hzgsettings.hzglogo then
-					sampTextdrawSetLetterSizeAndColor (i, 0.3199990093708, 1.3999999761581, color)
-				else
-					sampTextdrawSetLetterSizeAndColor (i, 0, 0, color)
-				end
-			end
-			if text == 'TURF OWNER:' then
-				if hud.hzgsettings.turfowner then
-					sampTextdrawSetLetterSizeAndColor (i, 0.23999999463558, 1.2000000476837, color)
-				else	
-					sampTextdrawSetLetterSizeAndColor (i, 0, 0, color)
-				end
-			end
-			if math.floor(posX) == 610 and math.floor(posY) == 68 and clr == 4278190080 then
-				if hud.hzgsettings.hpbar then
-					sampTextdrawSetString(i, '')
-				else
-					sampTextdrawSetString(i, '')
-				end
-			end
-			if math.floor(posX) == 608 and math.floor(posY) == 70 and clr == 4284091408 then
-				if hud.hzgsettings.hpbar then
-					sampTextdrawSetString(i, '')
-				else
-					sampTextdrawSetString(i, '')
-				end
-			end
-			if math.floor(posX) <= 608 and math.floor(posY) == 70 and clr == 4290058273 then
-				if hud.hzgsettings.hpbar then
-					sampTextdrawSetString(i, '')
-				else
-					sampTextdrawSetString(i, '')
-				end
-			end
-		end
-	end
 end
 
 function formatmoney(n)
