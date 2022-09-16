@@ -318,25 +318,25 @@ function main()
 	if doesFileExist(cfg_hud) then loadIni_hud() else blankIni_hud() end
 	if doesFileExist(cfg_autosave) then loadIni_autosave() else blankIni_autosave() end
 	
-	if admintools.hzgsettings.turf == false then
+	if not admintools.hzgsettings.turf or admintools.hzgsettings.turf then
 		admintools.hzgsettings.turf = {}
 	end
-	if admintools.hzgsettings.turfowner == false then
+	if not admintools.hzgsettings.turfowner or admintools.hzgsettings.turfowner then
 		admintools.hzgsettings.turfowner = {}
 	end
-	if admintools.hzgsettings.wristwatch == false then
+	if not admintools.hzgsettings.wristwatch or admintools.hzgsettings.wristwatch then
 		admintools.hzgsettings.wristwatch = {}
 	end
-	if admintools.hzgsettings.hzglogo == false then
+	if not admintools.hzgsettings.hzglogo or admintools.hzgsettings.hzglogo then
 		admintools.hzgsettings.hzglogo = {}
 	end
-	if admintools.hzgsettings.hpbar == false then
+	if not admintools.hzgsettings.hpbar or admintools.hzgsettings.hpbar then
 		admintools.hzgsettings.hpbar = {}
 	end
-	if admintools.hzgsettings.hptext == false then
+	if not admintools.hzgsettings.hptext or admintools.hzgsettings.hptext then
 		admintools.hzgsettings.hptext = {}
 	end
-	if admintools.hzgsettings.armortext == false then
+	if not admintools.hzgsettings.armortext or admintools.hzgsettings.armortext then
 		admintools.hzgsettings.armortext = {}
 	end
 	
