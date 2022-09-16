@@ -318,26 +318,26 @@ function main()
 	if doesFileExist(cfg_hud) then loadIni_hud() else blankIni_hud() end
 	if doesFileExist(cfg_autosave) then loadIni_autosave() else blankIni_autosave() end
 	
-	if not admintools.hzgsettings.turf or admintools.hzgsettings.turf then
+	if not hud.hzgsettings.turf or hud.hzgsettings.turf then
 		admintools.hzgsettings.turf = {}
 	end
-	if not admintools.hzgsettings.turfowner or admintools.hzgsettings.turfowner then
-		admintools.hzgsettings.turfowner = {}
+	if not hud.hzgsettings.turfowner or hud.hzgsettings.turfowner then
+		hud.hzgsettings.turfowner = {}
 	end
-	if not admintools.hzgsettings.wristwatch or admintools.hzgsettings.wristwatch then
-		admintools.hzgsettings.wristwatch = {}
+	if not hud.hzgsettings.wristwatch or hud.hzgsettings.wristwatch then
+		hud.hzgsettings.wristwatch = {}
 	end
-	if not admintools.hzgsettings.hzglogo or admintools.hzgsettings.hzglogo then
-		admintools.hzgsettings.hzglogo = {}
+	if not hud.hzgsettings.hzglogo or hud.hzgsettings.hzglogo then
+		hud.hzgsettings.hzglogo = {}
 	end
-	if not admintools.hzgsettings.hpbar or admintools.hzgsettings.hpbar then
-		admintools.hzgsettings.hpbar = {}
+	if not hud.hzgsettings.hpbar or hud.hzgsettings.hpbar then
+		hud.hzgsettings.hpbar = {}
 	end
-	if not admintools.hzgsettings.hptext or admintools.hzgsettings.hptext then
-		admintools.hzgsettings.hptext = {}
+	if not hud.hzgsettings.hptext or hud.hzgsettings.hptext then
+		hud.hzgsettings.hptext = {}
 	end
-	if not admintools.hzgsettings.armortext or admintools.hzgsettings.armortext then
-		admintools.hzgsettings.armortext = {}
+	if not hud.hzgsettings.armortext or hud.hzgsettings.armortext then
+		hud.hzgsettings.armortext = {}
 	end
 	
 	hud = table.assocMerge(blank_hud, hud)
