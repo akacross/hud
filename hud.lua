@@ -317,6 +317,29 @@ function main()
 	
 	if doesFileExist(cfg_hud) then loadIni_hud() else blankIni_hud() end
 	if doesFileExist(cfg_autosave) then loadIni_autosave() else blankIni_autosave() end
+	
+	if admintools.hzgsettings.turf == false then
+		admintools.hzgsettings.turf = {}
+	end
+	if admintools.hzgsettings.turfowner == false then
+		admintools.hzgsettings.turfowner = {}
+	end
+	if admintools.hzgsettings.wristwatch == false then
+		admintools.hzgsettings.wristwatch = {}
+	end
+	if admintools.hzgsettings.hzglogo == false then
+		admintools.hzgsettings.hzglogo = {}
+	end
+	if admintools.hzgsettings.hpbar == false then
+		admintools.hzgsettings.hpbar = {}
+	end
+	if admintools.hzgsettings.hptext == false then
+		admintools.hzgsettings.hptext = {}
+	end
+	if admintools.hzgsettings.armortext == false then
+		admintools.hzgsettings.armortext = {}
+	end
+	
 	hud = table.assocMerge(blank_hud, hud)
 	autosave = table.assocMerge(autosave, blank_autosave)
 	
