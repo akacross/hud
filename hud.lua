@@ -317,58 +317,8 @@ function main()
 	
 	if doesFileExist(cfg_hud) then loadIni_hud() else blankIni_hud() end
 	if doesFileExist(cfg_autosave) then loadIni_autosave() else blankIni_autosave() end
-
-	--[[if hud.hzgsettings.turf == false then
-		hud.hzgsettings.turf = {}
-	end
-	
-	if hud.hzgsettings.turfowner == false then
-		hud.hzgsettings.turfowner = {}
-	end
-	
-	if hud.hzgsettings.wristwatch == false then
-		hud.hzgsettings.wristwatch = {}
-	end
-	
-	if hud.hzgsettings.hzglogo == false then
-		hud.hzgsettings.hzglogo = {}
-	end
-	
-	if hud.hzgsettings.hpbar == false then
-		hud.hzgsettings.hpbar = {}
-	end
-	
-	if hud.hzgsettings.hzglogo == false then
-		hud.hzgsettings.hzglogo = {}
-	end
-	
-	if hud.hzgsettings.hzglogo.toggle[1] == nil then
-		hud.hzgsettings.hzglogo.toggle[1] = true
-	end
-	
-	if hud.hzgsettings.hzglogo.toggle[2] == nil then
-		hud.hzgsettings.hzglogo.toggle[2] = true
-	end
-	
-	if hud.hzgsettings.hzglogo.pos[1] == nil then
-		hud.hzgsettings.hzglogo.pos[1] = 565
-	end
-	
-	if hud.hzgsettings.hzglogo.pos[2] == nil then
-		hud.hzgsettings.hzglogo.pos[2] = 3
-	end
-	
-	if hud.hzgsettings.hzglogo.alignment == nil then
-		hud.hzgsettings.hzglogo.alignment = 0
-	end
-	
-	if hud.hzgsettings.hzglogo.color == nil then
-		hud.hzgsettings.hzglogo.color = -1
-	end
-	
-	if hud.hzgsettings.hzglogo.customstring == nil then
-		hud.hzgsettings.hzglogo.customstring = 'akacross.net'
-	end]]
+	hud = table.assocMerge(blank_hud, hud)
+	autosave = table.assocMerge(autosave, blank_autosave)
 	
 	displayHud(hud.defaulthud) 
 	createfonts()
@@ -408,7 +358,7 @@ function main()
 			sampAddChatMessage(string.format("{ABB2B9}[%s]{FFFFFF} The update is in progress.. Please wait..", script.this.name), -1)
 		end
 	end)
-	sampfuncsLog("(Hud: /hud)")
+	sampAddChatMessage("["..script.this.name..'] '.. "{FF1A74}(/hud) Authors: " .. table.concat(thisScript().authors, ", "), -1)
 	
 	setmaxhp()
 	
@@ -1454,7 +1404,8 @@ function sampev.onSendCommand(command)
 end
 
 function sampev.onShowTextDraw(id, data)
-	if data.position.x == 86 and data.position.y == 434 and not textdrawbool[1] then
+	--print(data.position.x ..' | '.. data.position.y ..' | '.. data.text ..' | '.. id)
+	if data.position.x == 86 and (data.position.y == 434 or math.floor(data.position.y) == 424) and not textdrawbool[1] then
 		setSampfuncsGlobalVar("textdraw1", id)
 		textdrawbool[1] = true
 	end
@@ -1617,7 +1568,7 @@ function sampev.onShowTextDraw(id, data)
 	end
 	
 	local textdraw9_res, textdraw9 = getSampfuncsGlobalVar("textdraw9")
-	if id == textdraw9 and textdraw9_res then
+	if id == (textdraw9 or 2053) and textdraw9_res then
 		if hud.hzgsettings.armortext.toggle[1] then
 			setSampfuncsGlobalVar("armortext", data.text)
 		else
@@ -1634,8 +1585,7 @@ end
 
 function sampev.onTextDrawSetString(id, text)
 	local posX, posY = sampTextdrawGetPos(id)
-	
-	if posX == 86 and posY == 434 and not textdrawbool[1] then
+	if posX == 86 and (posY == 434 or math.floor(posY) == 424) and not textdrawbool[1] then
 		setSampfuncsGlobalVar("textdraw1", id)
 		textdrawbool[1] = true
 	end
@@ -1692,7 +1642,7 @@ function sampev.onTextDrawSetString(id, text)
 	end
 	
 	local textdraw9_res, textdraw9 = getSampfuncsGlobalVar("textdraw9")
-	if id == textdraw9 and textdraw9_res then
+	if id == (textdraw9 or 2053) and textdraw9_res then
 		if hud.hzgsettings.armortext.toggle[1] then
 			setSampfuncsGlobalVar("armortext", text)
 		else
@@ -1792,7 +1742,7 @@ function hztextdraws(id)
 			end
 			
 			local textdraw9_res, textdraw9 = getSampfuncsGlobalVar("textdraw9")
-			if i == textdraw9 and textdraw9_res and id == 6 then
+			if i == (textdraw9 or 2053) and textdraw9_res and id == 6 then
 				sampTextdrawSetLetterSizeAndColor(i, letSizeX, letSizeY, hud.hzgsettings.armortext.color)
 				if not text then
 					sampTextdrawSetString(i, 0)
@@ -2661,8 +2611,8 @@ function getVehicleName(model)
 		{"Yankee", "YANKEE"},
 		{"Yosemite", "YOSEMIT"},
 		{"ZR-350", "ZR350"},
+		{"Landstalker", "LANDSTK"},
 	}
-
 	for k, v in ipairs(vehNames) do
 		if v[2] == getNameOfVehicleModel(model) then
             vehname = v[1]
