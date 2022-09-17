@@ -30,7 +30,6 @@ local mem = require 'memory'
 local encoding = require 'encoding'
 encoding.default = 'CP1251'
 local u8 = encoding.UTF8
-local mimgui_addons = require 'mimgui_addons'
 local flag = require ('moonloader').font_flag
 local faicons = require 'fa-icons'
 local ti = require 'tabler_icons'
@@ -318,25 +317,25 @@ function main()
 	if doesFileExist(cfg_hud) then loadIni_hud() else blankIni_hud() end
 	if doesFileExist(cfg_autosave) then loadIni_autosave() else blankIni_autosave() end
 	
-	if not hud.hzgsettings.turf or hud.hzgsettings.turf then
-		admintools.hzgsettings.turf = {}
+	if not hud.hzgsettings.turf or hud.hzgsettings.turf == true then
+		hud.hzgsettings.turf = {}
 	end
-	if not hud.hzgsettings.turfowner or hud.hzgsettings.turfowner then
+	if not hud.hzgsettings.turfowner or hud.hzgsettings.turfowner == true then
 		hud.hzgsettings.turfowner = {}
 	end
-	if not hud.hzgsettings.wristwatch or hud.hzgsettings.wristwatch then
+	if not hud.hzgsettings.wristwatch or hud.hzgsettings.wristwatch == true then
 		hud.hzgsettings.wristwatch = {}
 	end
-	if not hud.hzgsettings.hzglogo or hud.hzgsettings.hzglogo then
+	if not hud.hzgsettings.hzglogo or hud.hzgsettings.hzglogo == true then
 		hud.hzgsettings.hzglogo = {}
 	end
-	if not hud.hzgsettings.hpbar or hud.hzgsettings.hpbar then
+	if not hud.hzgsettings.hpbar or hud.hzgsettings.hpbar == true then
 		hud.hzgsettings.hpbar = {}
 	end
-	if not hud.hzgsettings.hptext or hud.hzgsettings.hptext then
+	if not hud.hzgsettings.hptext or hud.hzgsettings.hptext == true then
 		hud.hzgsettings.hptext = {}
 	end
-	if not hud.hzgsettings.armortext or hud.hzgsettings.armortext then
+	if not hud.hzgsettings.armortext or hud.hzgsettings.armortext == true then
 		hud.hzgsettings.armortext = {}
 	end
 	
@@ -1444,18 +1443,6 @@ function sampev.onShowTextDraw(id, data)
 		setSampfuncsGlobalVar("textdraw4", id)
 		textdrawbool[4] = true
 	end
-	if math.floor(data.position.x) == 610 and math.floor(data.position.y) == 68 and data.boxColor == -16777216 and not textdrawbool[5] then 
-		setSampfuncsGlobalVar("textdraw5", id)
-		textdrawbool[5] = true
-	end
-	if math.floor(data.position.x) == 608 and math.floor(data.position.y) == 70 and data.boxColor == -15725478 and not textdrawbool[6] then 
-		setSampfuncsGlobalVar("textdraw6", id)
-		textdrawbool[6] = true
-	end
-	if math.floor(data.position.x) <= 608 and math.floor(data.position.y) == 70 and data.boxColor == -14608203 and not textdrawbool[7] then 
-		setSampfuncsGlobalVar("textdraw7", id)
-		textdrawbool[7] = true
-	end
 	if (data.position.x == 577 or data.position.x == 611) and data.position.y == 65 and not textdrawbool[8] then 
 		setSampfuncsGlobalVar("textdraw8", id)
 		textdrawbool[8] = true
@@ -1532,8 +1519,7 @@ function sampev.onShowTextDraw(id, data)
 		return {id, data}
 	end
 
-	local textdraw5_res, textdraw5 = getSampfuncsGlobalVar("textdraw5")
-	if id == textdraw5 and textdraw5_res then
+	if math.floor(data.position.x) == 610 and math.floor(data.position.y) == 68 then
 		if hud.hzgsettings.hpbar.toggle[1] then
 			data.text = ''
 		else
@@ -1547,8 +1533,7 @@ function sampev.onShowTextDraw(id, data)
 		return {id, data}
 	end
 
-	local textdraw6_res, textdraw6 = getSampfuncsGlobalVar("textdraw6")
-	if id == textdraw6 and textdraw6_res then
+	if math.floor(data.position.x) == 608 and math.floor(data.position.y) == 70 then 
 		if hud.hzgsettings.hpbar.toggle[1] then
 			data.text = ''
 		else
@@ -1561,8 +1546,7 @@ function sampev.onShowTextDraw(id, data)
 		return {id, data}
 	end
 
-	local textdraw7_res, textdraw7 = getSampfuncsGlobalVar("textdraw7")
-	if id == textdraw7 and textdraw7_res then
+	if math.floor(data.position.x) <= 608 and math.floor(data.position.y) == 70 then
 		if hud.hzgsettings.hpbar.toggle[1] then
 			data.text = ''
 		else
@@ -1723,8 +1707,7 @@ function hztextdraws(id)
 				end
 			end
 			
-			local textdraw5_res, textdraw5 = getSampfuncsGlobalVar("textdraw5")
-			if i == textdraw5 and textdraw5_res and id == 4 then
+			if math.floor(posX) == 610 and math.floor(posY) == 68 and id == 4 then
 				sampTextdrawSetBoxColorAndSize(i, box, hud.hzgsettings.hpbar.color1, sizeX, sizeY)
 				if hud.hzgsettings.hpbar.toggle[1] then
 					sampTextdrawSetString(i, '')
@@ -1732,8 +1715,7 @@ function hztextdraws(id)
 					sampTextdrawSetString(i, '')
 				end
 			end
-			local textdraw6_res, textdraw6 = getSampfuncsGlobalVar("textdraw6")
-			if i == textdraw6 and textdraw6_res and id == 4 then
+			if math.floor(posX) == 608 and math.floor(posY) == 70 and id == 4 then 
 				sampTextdrawSetBoxColorAndSize(i, box, hud.hzgsettings.hpbar.color2, sizeX, sizeY)
 				if hud.hzgsettings.hpbar.toggle[1] then
 					sampTextdrawSetString(i, '')
@@ -1741,8 +1723,7 @@ function hztextdraws(id)
 					sampTextdrawSetString(i, '')
 				end
 			end
-			local textdraw7_res, textdraw7 = getSampfuncsGlobalVar("textdraw7")
-			if i == textdraw7 and textdraw7_res and id == 4 then
+			if math.floor(posX) <= 608 and math.floor(posY) == 70 and id == 4 then 
 				sampTextdrawSetBoxColorAndSize(i, box, hud.hzgsettings.hpbar.color3, sizeX, sizeY)
 				if hud.hzgsettings.hpbar.toggle[1] then
 					sampTextdrawSetString(i, '')
