@@ -44,11 +44,9 @@ local iconsPath = resourcePath .. 'weapons\\'
 local url = "https://raw.githubusercontent.com/akacross/hud/main/"
 local scriptUrl = url .. "hud.lua"
 local updateUrl = url .. "hud.txt"
+local scriptUrlBeta = url .. "beta/hud.lua"
+local updateUrlBeta = url .. "beta/hud.txt"
 local iconsUrl = url .. "resource/hud/weapons/"
-
-local urlBeta = "https://cdn.akacross.net/" ..scriptName.. "/beta/"
-local scriptUrlBeta = urlBeta .. "hud.lua"
-local updateUrlBeta = urlBeta .. "hud.txt"
 
 -- Libs
 local ped, h = playerPed, playerHandle
@@ -2026,7 +2024,7 @@ end
 
 function updateScript(beta)
     update_in_process = true
-    downloadFiles({url = beta and updateUrlBeta or updateUrl, path = beta and scriptUrlBeta or scriptUrl}, function(result)
+    downloadFiles({url = beta and scriptUrlBeta or scriptUrl, path = scriptPath}, function(result)
         if result then
             formattedAddChatMessage("Update downloaded successfully!", -1)
         end
