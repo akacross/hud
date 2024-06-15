@@ -7,7 +7,7 @@ script_url("https://akacross.net/")
 ]]
 
 local scriptName = thisScript().name
-local scriptVersion = "1.4.22"
+local scriptVersion = "1.4.21"
 
 -- Requirements
 require 'lib.moonloader'
@@ -2024,7 +2024,7 @@ end
 
 function updateScript(beta)
     update_in_process = true
-    downloadFiles({url = scriptUrlBeta, path = scriptPath, replace = true}, function(result)
+    downloadFiles({{url = beta and scriptUrlBeta or scriptUrl, path = scriptPath, replace = true}}, function(result)
         if result then
             formattedAddChatMessage("Update downloaded successfully!", -1)
         end
@@ -2033,7 +2033,7 @@ function updateScript(beta)
 end
 
 function checkForUpdate()
-	asyncHttpRequest('GET', updateUrlBeta, nil,
+	asyncHttpRequest('GET', beta and updateUrlBeta or updateUrl, nil,
 		function(response)
             local updateVersion = response.text:match("version: (.+)")
             if updateVersion and compareVersions(scriptVersion, updateVersion) == -1 then
@@ -2047,7 +2047,7 @@ function checkForUpdate()
 	)
 end
 
-function downloadFiles(files, onCompleteCallback)
+function downloadFiles(table, onCompleteCallback)
     local downloadsInProgress = 0
     local downloadsStarted = false
     local callbackCalled = false
@@ -2063,7 +2063,9 @@ function downloadFiles(files, onCompleteCallback)
         end
     end
 
-    for _, file in ipairs(files) do
+    for _, file in ipairs(table) do
+        print(file)
+        --print(file.url, file.path, file.replace)
         if not doesFileExist(file.path) or file.replace then
             downloadsInProgress = downloadsInProgress + 1
             downloadsStarted = true
