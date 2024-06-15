@@ -2025,9 +2025,9 @@ function updateScript()
     downloadFiles({{url = settings.beta and scriptUrlBeta or scriptUrl, path = scriptPath, replace = true}}, function(result)
         if result then
             formattedAddChatMessage("Update downloaded successfully!", -1)
+            formattedAddChatMessage("Reloading the script now.", -1)
+            thisScript():reload()
         end
-        formattedAddChatMessage("Reloading the script now.", -1)
-        thisScript():reload()
     end)
 end
 
