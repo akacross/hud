@@ -390,7 +390,7 @@ function main()
     local files = {}
     for i = 0, 48 do
         if i < 19 or i > 21 then
-            table.insert(files, {url = iconsUrl .. i .. ".png", path = iconsPath .. i .. ".png"})
+            table.insert(files, {url = iconsUrl .. i .. ".png", path = iconsPath .. i .. ".png", replace = false})
         end
     end
     downloadFiles(files, function(result)
@@ -2024,7 +2024,7 @@ end
 
 function updateScript(beta)
     update_in_process = true
-    downloadFiles({url = beta and scriptUrlBeta or scriptUrl, path = scriptPath}, function(result)
+    downloadFiles({url = scriptUrlBeta, path = scriptPath, replace = true}, function(result)
         if result then
             formattedAddChatMessage("Update downloaded successfully!", -1)
         end
@@ -2064,7 +2064,7 @@ function downloadFiles(files, onCompleteCallback)
     end
 
     for _, file in ipairs(files) do
-        if not doesFileExist(file.path) then
+        if not doesFileExist(file.path) or file.replace then
             downloadsInProgress = downloadsInProgress + 1
             downloadsStarted = true
             downloadUrlToFile(file.url, file.path, download_handler)
