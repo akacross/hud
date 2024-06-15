@@ -2,10 +2,6 @@ script_name("hud")
 script_author("akacross")
 script_url("https://akacross.net/")
 
---[[
-    1. Add stable and beta channels for updating.
-]]
-
 local scriptName = thisScript().name
 local scriptVersion = "1.4.22"
 
@@ -809,7 +805,9 @@ imgui.OnFrame(function() return menu.settings[0] end, function()
                 initializeHud()
             end
         end)
-        toggleButton(fa.RETWEET .. ' Update', 309, false, 'Check for update', checkForUpdate)
+        toggleButton(fa.RETWEET .. ' Update', 309, false, 'Check for update', function()
+            checkForUpdate()
+        end)
     imgui.EndChild()
 
     imgui.SetCursorPos(imgui.ImVec2(89, 85))
@@ -1395,7 +1393,7 @@ imgui.OnFrame(function() return menu.confirm[0] end, function()
             elseif t.id == 'update' then
                 imgui.Text('Do you want to udate this script?')
                 handleButton(fa.CIRCLE_CHECK .. ' Update', function()
-                    updateScript(settings.beta)
+                    updateScript()
                     t.status = false
                 end)
                 imgui.SameLine()
@@ -2022,9 +2020,9 @@ function getSpeedInKMH(speed)
     return math.ceil(speed * 4.80)
 end
 
-function updateScript(beta)
+function updateScript()
     update_in_process = true
-    downloadFiles({{url = beta and scriptUrlBeta or scriptUrl, path = scriptPath, replace = true}}, function(result)
+    downloadFiles({{url = settings.beta and scriptUrlBeta or scriptUrl, path = scriptPath, replace = true}}, function(result)
         if result then
             formattedAddChatMessage("Update downloaded successfully!", -1)
         end
@@ -2033,7 +2031,7 @@ function updateScript(beta)
 end
 
 function checkForUpdate()
-	asyncHttpRequest('GET', beta and updateUrlBeta or updateUrl, nil,
+	asyncHttpRequest('GET', settings.beta and updateUrlBeta or updateUrl, nil,
 		function(response)
             local updateVersion = response.text:match("version: (.+)")
             if updateVersion and compareVersions(scriptVersion, updateVersion) == -1 then
@@ -2064,8 +2062,6 @@ function downloadFiles(table, onCompleteCallback)
     end
 
     for _, file in ipairs(table) do
-        print(file)
-        --print(file.url, file.path, file.replace)
         if not doesFileExist(file.path) or file.replace then
             downloadsInProgress = downloadsInProgress + 1
             downloadsStarted = true
