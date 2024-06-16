@@ -3,7 +3,7 @@ script_author("akacross")
 script_url("https://akacross.net/")
 
 local scriptName = thisScript().name
-local scriptVersion = "1.4.25"
+local scriptVersion = "1.4.26"
 
 -- Requirements
 require 'lib.moonloader'
@@ -62,6 +62,7 @@ local settings_defaultSettings = {
     JsonFile = 'hud.json',
     autoCheckUpdate = false,
     updateInProgress = false,
+    lastVersion = "Unknown",
     autosave = false,
     beta = true,
 	turftext = '',
@@ -340,9 +341,13 @@ function main()
     repeat wait(0) until isSampAvailable()
 
     if settings.updateInProgress then
-        formattedAddChatMessage("You have successfully upgraded to Version: " .. scriptVersion .. '.', -1)
+        formattedAddChatMessage(string.format("You have successfully upgraded from Version: % to %s", settings.lastVersion, scriptVersion), -1)
         settings.updateInProgress = false
+
+        local success, err = saveConfig(settingsFile, settings)
+        if not success then print("Error saving config: " .. err) end
     end
+    if settings.autoCheckUpdate then checkForUpdate() end
 
     sampRegisterChatCommand("hud", function()
         if settings.updateInProgress then
@@ -361,16 +366,12 @@ function main()
         end
     end
     downloadFiles(files, function(result)
-        if result then
-            formattedAddChatMessage("All files downloaded successfully!", -1)
-        end
+        if result then formattedAddChatMessage("All files downloaded successfully!", -1) end
         initializeHud()
     end)
 
     createHudUpdateThread()
     createFpsUpdateThread()
-
-    if settings.autoCheckUpdate then checkForUpdate() end
     wait(-1)
 end
 
@@ -2008,6 +2009,7 @@ end
 
 function updateScript()
     settings.updateInProgress = true
+    settings.lastVersion = scriptVersion
     downloadFiles({{url = settings.beta and scriptUrlBeta or scriptUrl, path = scriptPath, replace = true}}, function(result)
         if result then
             formattedAddChatMessage("Update downloaded successfully! Reloading the script now.", -1)
