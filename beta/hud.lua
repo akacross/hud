@@ -3,7 +3,7 @@ script_author("akacross")
 script_url("https://akacross.net/")
 
 local scriptName = thisScript().name
-local scriptVersion = "1.4.27"
+local scriptVersion = "1.4.28"
 
 -- Requirements
 require 'lib.moonloader'
@@ -74,8 +74,8 @@ local hud_defaultSettings = {
 	toggle = true,
 	defaulthud = false,
 	tog = {
-		{true,true,false}, {true,true,true}, {true,true}, {true,true,true,true}, {true,true,true}, {true,true,true,true,true},
-		{true,true,true,true}, {{true,false},{true,true},{true},{true,true},{true,true},{true,true},{true},{true},{true,true},{true},{true}}
+		{true,true,false},{true,true,true},{true,true},{true,true,true,true},{true,true,true},{true,true,true,true,true},{true,true,true,true},
+		{{true,false},{true,true},{true},{true,true},{true,true},{true,true},{true},{true},{true,true},{true},{true}}
 	},
 	groups = {{1,1},{1,1},{1,1},{1,1},{1,1},{1,1,1},{1,1},{6,3,3,4,4,2,2,2,5,5,2}},
 	pos = {
@@ -93,23 +93,19 @@ local hud_defaultSettings = {
 	border = {1,1,1,1,1},
 	spacing = -3,
 	font = {
-		{"Aerial"}, {"Aerial"}, {"Aerial"}, {"Aerial"}, {"Aerial"},
-		{"Aerial","Aerial"}, {"Aerial"},
+		{"Aerial"}, {"Aerial"}, {"Aerial"}, {"Aerial"}, {"Aerial"},{"Aerial","Aerial"}, {"Aerial"},
 		{"Aerial","Aerial","Aerial","Aerial","Aerial","Aerial","Aerial","Aerial","Aerial","Aerial","Aerial"}
 	},
 	fontsize = {
 		{8},{8},{8},{8},{8},{8,10},{16},{10,10,10,10,10,10,10,10,10,10,10}
 	},
-	alignfont = {{2},{2},{2},{2},{2},{1,2},{1},{3,3,3,3,3,3,3,3,3,3,3}},
+	alignfont = {{2},{2},{2},{2},{2},{3,2},{3},{3,3,3,3,3,3,3,3,3,3,3}},
 	fontflag = {
-		{{true,true,true,true}},
-		{{true,true,true,true}},
-		{{true,true,true,true}},
-		{{true,true,true,true}},
-		{{true,true,true,true}},
-		{{true,true,true,true},{true,true,true,true}},
-		{{true,false,true,true}},
-		{{true,true,true,true},{true,true,true,true},{true,true,true,true},{true,true,true,true},{true,true,true,true},{true,true,true,true},{true,true,true,true},{true,true,true,true},{true,true,true,true},{true,true,true,true},{true,true,true,true}}
+		{{true,true,true,true}},{{true,true,true,true}},{{true,true,true,true}},{{true,true,true,true}},{{true,true,true,true}},{{true,true,true,true},{true,true,true,true}},{{true,false,true,true}},
+		{
+            {true,true,true,true},{true,true,true,true},{true,true,true,true},{true,true,true,true},{true,true,true,true},{true,true,true,true},
+            {true,true,true,true},{true,true,true,true},{true,true,true,true},{true,true,true,true},{true,true,true,true}
+        }
 	},
 	color = {
 		{{-65536,	1677721600,	-16777216},	-1},
@@ -123,15 +119,15 @@ local hud_defaultSettings = {
 	},
 	maxvalue = {100,100,100,1000,100},
 	serverhp = {5000000,8000000},
-	radar = { pos = {10,99}, size = {90,90}, color = -16777216, compass = false },
+	radar = {pos = {10,99}, size = {90,90}, color = -16777216, compass = false},
 	hzgsettings = {
-		turf = { toggle = {false}, pos = {86, 434} },
-		turfowner = { toggle = {false}, pos = {86, 423}, color = 4294967295 },
-		wristwatch = { toggle = {false}, pos = {577, 24}, color = 4294967295 },
-		hzglogo = { toggle = {true,false}, pos = {562, 3}, color = 4294967295, customstring = 'akacross.net' },
-		hpbar = { toggle = {false}, color1 = 4278190080, color2 = 4284091408, color3 = 4290058273 },
-		hptext = { toggle = {false}, color = 4294967295 },
-		armortext = { toggle = {false}, color = 4294967295 }
+		turf = {toggle = {false}, pos = {86, 434}},
+		turfowner = {toggle = {false}, pos = {86, 423}, color = 4294967295},
+		wristwatch = {toggle = {false}, pos = {577, 24}, color = 4294967295},
+		hzglogo = {toggle = {true,false}, pos = {562, 3}, color = 4294967295, customstring = 'akacross.net'},
+		hpbar = {toggle = {false}, color1 = 4278190080, color2 = 4284091408, color3 = 4290058273},
+		hptext = {toggle = {false}, color = 4294967295},
+		armortext = {toggle = {false}, color = 4294967295}
 	}
 }
 
@@ -2126,6 +2122,7 @@ function ensureDefaults(config, defaults, reset, ignoreKeys)
     local function isIgnored(key)
         for _, ignoreKey in ipairs(ignoreKeys) do
             if key == ignoreKey then
+                print(key)
                 return true
             end
         end
@@ -2138,6 +2135,7 @@ function ensureDefaults(config, defaults, reset, ignoreKeys)
             if isIgnored(k) then
                 return
             elseif def[k] == nil then
+                print(conf[k])
                 conf[k] = nil
                 localStatus = true
             elseif type(conf[k]) == "table" and type(def[k]) == "table" then
@@ -2150,7 +2148,9 @@ function ensureDefaults(config, defaults, reset, ignoreKeys)
     local function applyDefaults(conf, def)
         local localStatus = false
         for k, v in pairs(def) do
-            if conf[k] == nil or reset then
+            if isIgnored(k) then
+                return
+            elseif conf[k] == nil or reset then
                 if type(v) == "table" then
                     conf[k] = {}
                     localStatus = applyDefaults(conf[k], v) or localStatus
