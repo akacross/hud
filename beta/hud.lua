@@ -3,7 +3,7 @@ script_author("akacross")
 script_url("https://akacross.net/")
 
 local scriptName = thisScript().name
-local scriptVersion = "1.4.23"
+local scriptVersion = "1.4.24"
 
 -- Requirements
 require 'lib.moonloader'
@@ -50,12 +50,12 @@ local configsDir = {}
 local configExtensions = {json = true, ini = true}
 local update_in_process = false
 local confirmData = {
-    [1] = { id = 'open', name = '', status = false },
-    [2] = { id = 'rename', name = '', status = false },
-    [3] = { id = 'addNew', name = 'new.json', useCurrent = false, status = false },
-    [4] = { id = 'copy', selectedFile = nil, status = false },
-    [5] = { id = 'delete', status = false },
-    [6] = { id = 'update', status = false }
+    ['open'] = {name = '', status = false},
+    ['rename'] = {name = '', status = false},
+    ['add'] = {name = 'new.json', useCurrent = false, status = false},
+    ['copy'] = {selectedFile = nil, status = false},
+    ['delete'] = {status = false},
+    ['update'] = {status = false}
 }
 
 local settings = {}
@@ -1176,9 +1176,9 @@ imgui.OnFrame(function() return menu.settings[0] end, function()
         if imgui.BeginCombo("##configurations", settings.JsonFile) then
             imgui.SetCursorPos(imgui.ImVec2(7, 5))
             local buttons = {
-                { 'Copy', confirmData[4] },
-                { 'Rename', confirmData[2] },
-                { 'Delete', confirmData[5] }
+                { 'Copy', confirmData['copy'] },
+                { 'Rename', confirmData['rename'] },
+                { 'Delete', confirmData['delete'] }
             }
             for _, btn in ipairs(buttons) do
                 createButton(btn[1], btn[2])
@@ -1187,15 +1187,15 @@ imgui.OnFrame(function() return menu.settings[0] end, function()
             imgui.Selectable(u8(settings.JsonFile), true)
             imgui.Separator()
             if imgui.Selectable(u8('New File'), false) then
-                confirmData[3].status = true
+                confirmData['add'].status = true
                 menu.confirm[0] = true
             end
             imgui.Separator()
             for _, v in pairs(configsDir) do
                 if v.File ~= settings.JsonFile and matchConfigFiles(v.File) then
                     if imgui.Selectable(u8(v.File), false) then
-                        confirmData[1].name = v.File
-                        confirmData[1].status = true
+                        confirmData['open'].name = v.File
+                        confirmData['open'].status = true
                         menu.confirm[0] = true
                     end
                 end
@@ -1208,9 +1208,9 @@ imgui.OnFrame(function() return menu.settings[0] end, function()
 end)
 
 local function resetConfirmData()
-    for _, t in ipairs(confirmData) do
+    for n, t in pairs(confirmData) do
         if t.name then
-            t.name = (t.id == 'addNew') and 'new.json' or ''
+            t.name = (n == 'add') and 'new.json' or ''
         end
         if t.useCurrent ~= nil then
             t.useCurrent = false
@@ -1246,15 +1246,15 @@ local function createFileSelectCombo(label, currentFile, selectedFile, dir, onSe
 end
 
 imgui.OnFrame(function() return menu.confirm[0] end, function()
-    if not menu.settings[0] and not confirmData[6].status then resetConfirmData() end
+    if not menu.settings[0] and not confirmData['update'].status then resetConfirmData() end
     local io = imgui.GetIO()
     local center = imgui.ImVec2(io.DisplaySize.x / 2, io.DisplaySize.y / 2)
     imgui.SetNextWindowPos(center, imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
     imgui.Begin('', menu.confirm, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.AlwaysAutoResize)
     if not imgui.IsWindowFocused() then imgui.SetNextWindowFocus() end
-    for _, t in ipairs(confirmData) do
+    for n, t in pairs(confirmData) do
         if t.status then
-            if t.id == 'addNew' then
+            if n == 'add' then
                 imgui.Text('Create new configuration file.')
                 imgui.PushItemWidth(120)
                 local text = new.char[30]('')
@@ -1281,7 +1281,7 @@ imgui.OnFrame(function() return menu.confirm[0] end, function()
                     t.status = false
                     t.useCurrent = false
                 end)
-            elseif t.id == 'open' then
+            elseif n == 'open' then
                 imgui.Text('Do you want to open this file?')
                 imgui.Text('File: "' .. t.name .. '"')
                 handleButton(fa.CIRCLE_CHECK .. ' Confirm', function()
@@ -1297,7 +1297,7 @@ imgui.OnFrame(function() return menu.confirm[0] end, function()
                     t.status = false
                     t.name = ''
                 end)
-            elseif t.id == 'copy' then
+            elseif n == 'copy' then
                 imgui.Text('Copy the current configuration to another file.')
                 imgui.Text('File: "' .. settings.JsonFile .. '"')
                 createFileSelectCombo("##configurations2", settings.JsonFile, t.selectedFile, configsDir, function(selectedFile)
@@ -1316,7 +1316,7 @@ imgui.OnFrame(function() return menu.confirm[0] end, function()
                     t.status = false
                     t.selectedFile = nil
                 end)
-            elseif t.id == 'rename' then
+            elseif n == 'rename' then
                 imgui.Text('Do you want to rename this file?')
                 imgui.Text('File: "' .. settings.JsonFile .. '"')
                 imgui.PushItemWidth(120)
@@ -1340,7 +1340,7 @@ imgui.OnFrame(function() return menu.confirm[0] end, function()
                     t.status = false
                     t.name = ''
                 end)
-            elseif t.id == 'delete' then
+            elseif n == 'delete' then
                 imgui.Text('Do you want to delete this file?')
                 imgui.Text('File: "' .. settings.JsonFile .. '"')
                 handleButton(fa.CIRCLE_CHECK .. ' Confirm', function()
@@ -1356,7 +1356,7 @@ imgui.OnFrame(function() return menu.confirm[0] end, function()
                 handleButton(fa.CIRCLE_XMARK .. ' Cancel', function()
                     t.status = false
                 end)
-            elseif t.id == 'update' then
+            elseif n == 'update' then
                 imgui.Text('Do you want to update this script?')
                 handleButton(fa.CIRCLE_CHECK .. ' Update', function()
                     updateScript()
@@ -1991,7 +1991,7 @@ function checkForUpdate()
 		function(response)
             local updateVersion = response.text:match("version: (.+)")
             if updateVersion and compareVersions(scriptVersion, updateVersion) == -1 then
-                confirmData[6].status = true
+                confirmData['update'].status = true
                 menu.confirm[0] = true
             end
 		end,
