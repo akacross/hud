@@ -48,6 +48,7 @@ local iconsUrl = url .. "resource/hud/weapons/"
 local ped, h = playerPed, playerHandle
 local configsDir = {}
 local configExtensions = {json = true, ini = true}
+local update_in_process = false
 local confirmData = {
     [1] = { id = 'open', name = '', status = false },
     [2] = { id = 'rename', name = '', status = false },
@@ -170,7 +171,6 @@ local menu = {
 }
 local mid = 1
 local dragging = {}
-local update_in_process = false
 local move = false
 local inuse = false
 local selectedbox = {}
@@ -331,40 +331,6 @@ local function initializeHud()
     setRadarCompass(hud.radar.compass)
     for i = 0, 6 do hztextdraws(i) end
 end
-
---[[function downloadIcons(onCompleteCallback)
-    local downloadsInProgress = 0
-    local downloadsStarted = false
-    local callbackCalled = false
-
-    local function download_handler(id, status, p1, p2)
-        if status == dlstatus.STATUS_ENDDOWNLOADDATA then
-            downloadsInProgress = downloadsInProgress - 1
-        end
-
-        if downloadsInProgress == 0 and onCompleteCallback and not callbackCalled then
-            callbackCalled = true
-            onCompleteCallback("All icons downloaded successfully!")
-        end
-    end
-
-    for i = 0, 48 do
-        if i < 19 or i > 21 then
-            local filePath = iconsPath .. i .. ".png"
-            if not doesFileExist(filePath) then
-                local url = iconsUrl .. i .. ".png"
-                downloadsInProgress = downloadsInProgress + 1
-                downloadsStarted = true
-                downloadUrlToFile(url, filePath, download_handler)
-            end
-        end
-    end
-
-    if not downloadsStarted and onCompleteCallback and not callbackCalled then
-        callbackCalled = true
-        onCompleteCallback(nil)
-    end
-end]]
 
 function main()
     for _, dir in ipairs({configDir, resourceDir, cfgPath, cfgFolder, resourcePath, iconsPath}) do createDirectory(dir) end
@@ -1391,7 +1357,7 @@ imgui.OnFrame(function() return menu.confirm[0] end, function()
                     t.status = false
                 end)
             elseif t.id == 'update' then
-                imgui.Text('Do you want to udate this script?')
+                imgui.Text('Do you want to update this script?')
                 handleButton(fa.CIRCLE_CHECK .. ' Update', function()
                     updateScript()
                     t.status = false
@@ -2020,17 +1986,6 @@ function getSpeedInKMH(speed)
     return math.ceil(speed * 4.80)
 end
 
-function updateScript()
-    update_in_process = true
-    downloadFiles({{url = settings.beta and scriptUrlBeta or scriptUrl, path = scriptPath, replace = true}}, function(result)
-        if result then
-            formattedAddChatMessage("Update downloaded successfully!", -1)
-            formattedAddChatMessage("Reloading the script now.", -1)
-            thisScript():reload()
-        end
-    end)
-end
-
 function checkForUpdate()
 	asyncHttpRequest('GET', settings.beta and updateUrlBeta or updateUrl, nil,
 		function(response)
@@ -2044,6 +1999,16 @@ function checkForUpdate()
             print(err)
 		end
 	)
+end
+
+function updateScript()
+    update_in_process = true
+    downloadFiles({{url = settings.beta and scriptUrlBeta or scriptUrl, path = scriptPath, replace = true}}, function(result)
+        if result then
+            formattedAddChatMessage("Update downloaded successfully! Reloading the script now.", -1)
+            thisScript():reload()
+        end
+    end)
 end
 
 function downloadFiles(table, onCompleteCallback)
