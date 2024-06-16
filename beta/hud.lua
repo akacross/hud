@@ -3,7 +3,7 @@ script_author("akacross")
 script_url("https://akacross.net/")
 
 local scriptName = thisScript().name
-local scriptVersion = "1.4.28"
+local scriptVersion = "1.4.29"
 
 -- Requirements
 require 'lib.moonloader'
@@ -39,8 +39,8 @@ local iconsPath = resourcePath .. 'weapons\\'
 -- URLs
 local url = "https://raw.githubusercontent.com/akacross/hud/main/"
 local scriptUrl = url .. "hud.lua"
-local updateUrl = url .. "hud.txt"
 local scriptUrlBeta = url .. "beta/hud.lua"
+local updateUrl = url .. "hud.txt"
 local updateUrlBeta = url .. "beta/hud.txt"
 local iconsUrl = url .. "resource/hud/weapons/"
 
@@ -2122,7 +2122,6 @@ function ensureDefaults(config, defaults, reset, ignoreKeys)
     local function isIgnored(key)
         for _, ignoreKey in ipairs(ignoreKeys) do
             if key == ignoreKey then
-                print(key)
                 return true
             end
         end
@@ -2135,7 +2134,6 @@ function ensureDefaults(config, defaults, reset, ignoreKeys)
             if isIgnored(k) then
                 return
             elseif def[k] == nil then
-                print(conf[k])
                 conf[k] = nil
                 localStatus = true
             elseif type(conf[k]) == "table" and type(def[k]) == "table" then
@@ -2171,65 +2169,54 @@ function ensureDefaults(config, defaults, reset, ignoreKeys)
 end
 
 function asyncHttpRequest(method, url, args, resolve, reject)
-   local request_thread = effil.thread(function (method, url, args)
-      local requests = require 'requests'
-      local result, response = pcall(requests.request, method, url, args)
-      if result then
-         response.json, response.xml = nil, nil
-         return true, response
-      else
-         return false, response
-      end
-   end)(method, url, args)
-   -- Если запрос без функций обработки ответа и ошибок.
-   if not resolve then resolve = function() end end
-   if not reject then reject = function() end end
-   -- Проверка выполнения потока
-   lua_thread.create(function()
-      local runner = request_thread
-      while true do
-         local status, err = runner:status()
-         if not err then
-            if status == 'completed' then
-               local result, response = runner:get()
-               if result then
-                  resolve(response)
-               else
-                  reject(response)
-               end
-               return
-            elseif status == 'canceled' then
-               return reject(status)
+    local request_thread = effil.thread(function (method, url, args)
+        local requests = require 'requests'
+        local result, response = pcall(requests.request, method, url, args)
+        if result then
+            response.json, response.xml = nil, nil
+            return true, response
+        else
+            return false, response
+        end
+    end)(method, url, args)
+    if not resolve then resolve = function() end end
+    if not reject then reject = function() end end
+    lua_thread.create(function()
+        local runner = request_thread
+        while true do
+            local status, err = runner:status()
+            if not err then
+                if status == 'completed' then
+                    local result, response = runner:get()
+                    if result then
+                        resolve(response)
+                    else
+                        reject(response)
+                    end
+                    return
+                elseif status == 'canceled' then
+                    return reject(status)
+                end
+            else
+                return reject(err)
             end
-         else
-            return reject(err)
-         end
-         wait(0)
-      end
-   end)
+            wait(0)
+        end
+    end)
 end
 
 function compareVersions(version1, version2)
     local function parseVersion(version)
         local major, minor, patch = version:match("(%d+)%.?(%d*)%.?(%d*)")
-        major = tonumber(major) or 0
-        minor = tonumber(minor) or 0
-        patch = tonumber(patch) or 0
-        return major, minor, patch
+        return tonumber(major) or 0, tonumber(minor) or 0, tonumber(patch) or 0
     end
 
     local major1, minor1, patch1 = parseVersion(version1)
     local major2, minor2, patch2 = parseVersion(version2)
-
-    if major1 ~= major2 then
-        return major1 > major2 and 1 or -1
-    elseif minor1 ~= minor2 then
-        return minor1 > minor2 and 1 or -1
-    elseif patch1 ~= patch2 then
-        return patch1 > patch2 and 1 or -1
-    else
-        return 0
-    end
+    if major1 ~= major2 then return (major1 > major2) and 1 or -1 end
+    if minor1 ~= minor2 then return (minor1 > minor2) and 1 or -1 end
+    if patch1 ~= patch2 then return (patch1 > patch2) and 1 or -1 end
+    return 0
 end
 
 function formatNumber(n)
