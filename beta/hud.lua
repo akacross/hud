@@ -3,7 +3,7 @@ script_author("akacross")
 script_url("https://akacross.net/")
 
 local scriptName = thisScript().name
-local scriptVersion = "1.4.26"
+local scriptVersion = "1.4.27"
 
 -- Requirements
 require 'lib.moonloader'
