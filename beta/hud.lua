@@ -341,7 +341,7 @@ function main()
     repeat wait(0) until isSampAvailable()
 
     if settings.updateInProgress then
-        formattedAddChatMessage(string.format("You have successfully upgraded from Version: % to %s", settings.lastVersion, scriptVersion), -1)
+        formattedAddChatMessage(string.format("You have successfully upgraded from Version: %s to %s", settings.lastVersion, scriptVersion), -1)
         settings.updateInProgress = false
 
         local success, err = saveConfig(settingsFile, settings)
