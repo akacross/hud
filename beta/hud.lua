@@ -3,7 +3,7 @@ script_author("akacross")
 script_url("https://akacross.net/")
 
 local scriptName = thisScript().name
-local scriptVersion = "1.4.24"
+local scriptVersion = "1.4.25"
 
 -- Requirements
 require 'lib.moonloader'
@@ -48,7 +48,6 @@ local iconsUrl = url .. "resource/hud/weapons/"
 local ped, h = playerPed, playerHandle
 local configsDir = {}
 local configExtensions = {json = true, ini = true}
-local update_in_process = false
 local confirmData = {
     ['open'] = {name = '', status = false},
     ['rename'] = {name = '', status = false},
@@ -61,7 +60,8 @@ local confirmData = {
 local settings = {}
 local settings_defaultSettings = {
     JsonFile = 'hud.json',
-    autoupdate = false,
+    autoCheckUpdate = false,
+    updateInProgress = false,
     autosave = false,
     beta = true,
 	turftext = '',
@@ -339,8 +339,13 @@ function main()
 
     repeat wait(0) until isSampAvailable()
 
+    if settings.updateInProgress then
+        formattedAddChatMessage("You have successfully upgraded to Version: " .. scriptVersion .. '.', -1)
+        settings.updateInProgress = false
+    end
+
     sampRegisterChatCommand("hud", function()
-        if update_in_process then
+        if settings.updateInProgress then
             formattedAddChatMessage("Update in progress. Please wait a moment.", -1)
             return
         end
@@ -365,7 +370,7 @@ function main()
     createHudUpdateThread()
     createFpsUpdateThread()
 
-    if settings.autoupdate then checkForUpdate() end
+    if settings.autoCheckUpdate then checkForUpdate() end
     wait(-1)
 end
 
@@ -1157,8 +1162,8 @@ imgui.OnFrame(function() return menu.settings[0] end, function()
         if imgui.IsItemHovered() then imgui.SetTooltip('Automatically saves the interface on exit.') end
 
         imgui.SameLine()
-        if imgui.Checkbox('Auto-Update', new.bool(settings.autoupdate)) then
-            settings.autoupdate = not settings.autoupdate
+        if imgui.Checkbox('Auto-Update', new.bool(settings.autoCheckUpdate)) then
+            settings.autoCheckUpdate = not settings.autoCheckUpdate
         end
         if imgui.IsItemHovered() then imgui.SetTooltip('Checks for updates at the start of the game.') end
 
@@ -2002,7 +2007,7 @@ function checkForUpdate()
 end
 
 function updateScript()
-    update_in_process = true
+    settings.updateInProgress = true
     downloadFiles({{url = settings.beta and scriptUrlBeta or scriptUrl, path = scriptPath, replace = true}}, function(result)
         if result then
             formattedAddChatMessage("Update downloaded successfully! Reloading the script now.", -1)
