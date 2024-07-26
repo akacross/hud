@@ -1,9 +1,16 @@
 script_name("hud")
 script_author("akacross")
-script_version("1.4.33")
+script_version("1.4.34")
 script_url("https://akacross.net/")
 
 local changelog = {
+    ["1.4.34"] = {
+        "Added changelog functionality to show the latest changes in the script and show the changelog after an update is finished", -- Needs finished (/hud.changelog)
+        "Rewritten the dependency manager to improve module loading and error handling",
+        "Enhanced error handling for the dependency manager to provide detailed error messages",
+        "Reorganized and refactored various sections of the script for better readability and maintainability",
+        "Also fixed spectate mode not working for admins using this modification (Worked fine but some values did not fetch correctly)"
+    },
     ["1.4.33"] = {
         "Implemented a new HUD update system using coroutines for improved performance",
         "The script now checks for updates asynchronously, improving startup time and overall performance",
@@ -37,20 +44,54 @@ local scriptPath = thisScript().path
 local scriptName = thisScript().name
 local scriptVersion = thisScript().version
 
+-- Dependency Manager
+local function safeRequire(module)
+    local success, result = pcall(require, module)
+    return success and result or nil, result
+end
+
 -- Requirements
-require 'lib.moonloader'
-local ffi = require 'ffi'
-local lfs = require 'lfs'
-local mem = require 'memory'
-local wm = require 'lib.windows.message'
-local gkeys  = require 'game.keys'
-local imgui = require 'mimgui'
-local encoding = require 'encoding'
-local sampev = require 'lib.samp.events'
-local weapons = require 'game.weapons'
-local flag = require 'moonloader'.font_flag
-local fa = require 'fAwesome6'
-local dlstatus = require 'moonloader'.download_status
+local dependencies = {
+    {name = 'moonloader', var = 'moonloader', extras = {flag = 'font_flag', dlstatus = 'download_status'}},
+    {name = 'ffi', var = 'ffi'},
+    {name = 'lfs', var = 'lfs'},
+    {name = 'memory', var = 'mem'},
+    {name = 'windows.message', var = 'wm'},
+    {name = 'game.keys', var = 'gkeys'},
+    {name = 'mimgui', var = 'imgui'},
+    {name = 'encoding', var = 'encoding'},
+    {name = 'samp.events', var = 'sampev'},
+    {name = 'game.weapons', var = 'weapons'},
+    {name = 'fAwesome6', var = 'fa'}
+}
+
+-- Load modules
+local loadedModules, statusMessages = {}, {success = {}, failed = {}}
+for _, dep in ipairs(dependencies) do
+    local loadedModule, errorMsg = safeRequire(dep.name)
+    loadedModules[dep.var] = loadedModule
+    table.insert(statusMessages[loadedModule and "success" or "failed"], loadedModule and dep.name or string.format("%s (%s)", dep.name, errorMsg))
+end
+
+-- Assign loaded modules to local variables
+for var, module in pairs(loadedModules) do
+    _G[var] = module
+end
+
+-- Assign extra fields
+for _, dep in ipairs(dependencies) do
+    if dep.extras and loadedModules[dep.var] then
+        for extraVar, extraField in pairs(dep.extras) do
+            _G[extraVar] = loadedModules[dep.var][extraField]
+        end
+    end
+end
+
+-- Print status messages
+print("Loaded modules: " .. table.concat(statusMessages.success, ", "))
+if #statusMessages.failed > 0 then
+    print("Failed to load modules: " .. table.concat(statusMessages.failed, ", "))
+end
 
 -- Encoding
 encoding.default = 'CP1251'
@@ -60,32 +101,43 @@ local u8 = encoding.UTF8
 local workingDir = getWorkingDirectory()
 local configDir = workingDir .. '\\config\\'
 local resourceDir = workingDir .. '\\resource\\'
+
+-- Configs
 local cfgPath = configDir .. scriptName .. '\\'
 local cfgFolder = cfgPath .. 'configs\\'
 local settingsFile = cfgPath .. 'settings.json'
 local updateFile = cfgPath .. 'update.txt'
+
+-- Resources
 local resourcePath = resourceDir .. scriptName .. '\\'
 local iconsPath = resourcePath .. 'weapons\\'
 
 -- URLs
-local url = "https://raw.githubusercontent.com/akacross/hud/main/"
-local scriptUrl = url .. "hud.lua"
-local scriptUrlBeta = url .. "beta/hud.lua"
-local updateUrl = url .. "hud.txt"
-local updateUrlBeta = url .. "beta/hud.txt"
-local iconsUrl = url .. "resource/hud/weapons/"
+local baseUrl = "https://raw.githubusercontent.com/akacross/hud/main/"
+local urls = {
+    script = baseUrl .. "hud.lua",
+    scriptBeta = baseUrl .. "beta/hud.lua",
+    update = baseUrl .. "hud.txt",
+    updateBeta = baseUrl .. "beta/hud.txt",
+    icons = baseUrl .. "resource/hud/weapons/"
+}
 
 -- Global Variables
 local ped, h = playerPed, playerHandle
+local new, str, sizeof = imgui.new, ffi.string, ffi.sizeof
+
+-- Configuration Directories and Extensions
 local configsDir = {}
 local configExtensions = {json = true, ini = true}
+
+-- Confirmation Data
 local confirmData = {
-    ['open'] = {name = '', status = false},
-    ['rename'] = {name = '', status = false},
-    ['add'] = {name = 'new.json', useCurrent = false, status = false},
-    ['copy'] = {selectedFile = nil, status = false},
-    ['delete'] = {status = false},
-    ['update'] = {status = false}
+    open = {name = '', status = false},
+    rename = {name = '', status = false},
+    add = {name = 'new.json', useCurrent = false, status = false},
+    copy = {selectedFile = nil, status = false},
+    delete = {status = false},
+    update = {status = false}
 }
 
 -- Settings and HUD Configuration
@@ -96,11 +148,10 @@ local settings_defaultSettings = {
     updateInProgress = false,
     lastVersion = "Unknown",
     autosave = false,
-    beta = true,
-	turftext = '',
-	wwtext = ''
+    beta = true
 }
 
+-- HUD Configuration
 local hud = {}
 local hud_defaultSettings = {
 	toggle = true,
@@ -163,56 +214,49 @@ local hud_defaultSettings = {
 	}
 }
 
-local healthValues = {0}
-local armorValues = {0}
-local sprintValues = {0}
-local vehicleValues = {0}
-local weaponValues = {0, "0", ""}
-local breathValues = {0}
-local moneyWantedValues = {0, "0"}
-local miscValues = {"", "", "", "", "", "", "", "", "", "", ""}
+-- Value Data
+local healthValues = {nil}
+local armorValues = {nil}
+local sprintValues = {nil}
+local vehicleValues = {nil}
+local weaponValues = {nil, nil, nil}
+local breathValues = {nil}
+local moneyWantedValues = {nil, nil}
+local miscValues = {nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil}
 
--- Other Configurations and Data
-local hudUpdateThread
-local fps = 0
-local fps_counter = 0
-local isPlayerSprinting = false
-local lastSprintPressTime = os.clock()
-local sprintDelay = 0.8 -- delay in seconds
-local currentRadarPosX, currentRadarPosY, currentRadarSizeX, currentRadarSizeY = nil, nil, nil, nil
-local currentRadarColor = nil
+-- Radar Configuration
+local radarConfig = {
+    posX = nil,
+    posY = nil,
+    sizeX = nil,
+    sizeY = nil,
+    color = nil
+}
 
+-- Assets Configuration
 local assets = {
-    temp_pos = {x = 0, y = 0},
-	weapTextures = nil,
-	fontId = nil,
-	maxVehHPIds = {427,528,601},
-	miscNames = {'Name','Local-Time','Server-Time','Ping','FPS','Direction','Location','Turf','Vehicle Speed','Vehicle Name','Badge'},
-	compassId = {},
-	badgeNames = {
-		{-1, 		'No Badge'},
-		{-14269954, 'LSPD'},
-		{-7500289, 	'FBI'},
-		{-14911565, 'ARES'},
-		{-4276546, 	'GOV'},
-		{-3368653, 	'SASD'},
-		{-32126, 	'LSFMD'},
-		{-16475023, 'SANEWS'},
-		{-7684107, 	'DD'}
-	}
+    tempPos = {x = 0, y = 0},
+    weapTextures = nil,
+    fontId = nil,
+    maxVehHPIds = {427, 528, 601},
+    miscNames = {
+        'Name', 'Local-Time', 'Server-Time', 'Ping', 'FPS', 'Direction', 
+        'Location', 'Turf', 'Vehicle Speed', 'Vehicle Name', 'Badge'
+    },
+    compassId = {},
+    badgeNames = {
+        {-1, 'No Badge'}, {-14269954, 'LSPD'}, {-7500289, 'FBI'}, {-14911565, 'ARES'}, {-4276546, 'GOV'}, {-3368653, 'SASD'}, 
+        {-32126, 'LSFMD'}, {-16475023, 'SANEWS'}, {-7684107, 'DD'}
+    }
 }
 
-local spec = {
-	playerid = -1,
-	state = false
-}
-
--- ImGui Related
-local new, str, sizeof = imgui.new, ffi.string, ffi.sizeof
+-- Menu Configuration
 local menu = {
     settings = new.bool(false),
     confirm = new.bool(false)
 }
+
+-- State Variables
 local mid = 1
 local dragging = {}
 local move = false
@@ -220,11 +264,27 @@ local inuse = false
 local selectedbox = {}
 local selected = {}
 
+-- Other Configurations
+local hudUpdateThread
+local isPlayerSprinting = false
+local lastSprintPressTime = os.clock()
+local sprintDelay = 0.8 -- delay in seconds
+local fps = 0
+local fps_counter = 0
+local allocatedPointers = {}
+
 -- Game Data
+local subZones = {
+    GAN1 = 'Grove Street', GAN2 = "Apartments", IWD1 = 'Freeway', IWD2 = 'Drug Den', IWD3A = 'Gas Station', IWD3B = 'Maximus Club',
+    IWD4 = 'Ghetto Area', IWD5 = 'Pizza', LMEX1A = "South", LMEX1B = "North", ELS1A = "Crack Lab", ELS1B = "Pig Pen", ELS2 = "Apartments", 
+    ELS3A = "The Court", ELS3C = "Alleyway", ELS4 = "Carwash", ELCO1 = "Unity Station", ELCO2 = "Apartments", ELCO1 = "Unity Station", 
+    ELCO2 = "Apartments", UNITY = "Traintracks", LIND1A = "West", LIND2B = "South", LIND1A = "North", LIND2A = "South", LIND3 = "East"
+}
+
 local customZones = {
     ["Castille Island"] = {3138.7588, -2248.6106, -63.2630, 3530.0903, -1922.0083, 343.3367},
     ["ARES Garage"] = {2204.1096, 2411.6570, -13.5870, 2329.5793, 2512.3259, 0.4885},
-    ["FBI Garage"] = {248.1156,-1549.7271,22.9225, 370.9664, -1456.6969, 30.3469}
+    ["FBI Garage"] = {248.1156, -1549.7271, 22.9225, 370.9664, -1456.6969, 30.3469}
 }
 
 local compassData = {
@@ -235,30 +295,41 @@ local compassData = {
 }
 
 local directionData = {
-    {min = 0, max = 22, direction = "North"},
-    {min = 23, max = 67, direction = "Northwest"},
-    {min = 68, max = 112, direction = "West"},
-    {min = 113, max = 157, direction = "Southwest"},
-    {min = 158, max = 202, direction = "South"},
-    {min = 203, max = 247, direction = "Southeast"},
-    {min = 248, max = 292, direction = "East"},
-    {min = 293, max = 329, direction = "Northeast"},
-    {min = 330, max = 360, direction = "North"}
+    {min = 0, max = 22, name = "North"},
+    {min = 23, max = 67, name = "Northwest"},
+    {min = 68, max = 112, name = "West"},
+    {min = 113, max = 157, name = "Southwest"},
+    {min = 158, max = 202, name = "South"},
+    {min = 203, max = 247, name = "Southeast"},
+    {min = 248, max = 292, name = "East"},
+    {min = 293, max = 329, name = "Northeast"},
+    {min = 330, max = 360, name = "North"}
 }
 
--- FFI Declarations
+local spectateData = {
+	id = -1,
+	state = false
+}
+
+-- FFI Configuration
 ffi.cdef[[
+    typedef unsigned long DWORD;
     void* malloc(size_t size);
+    void free(void* ptr);
 ]]
 
+-- HUD Initialization
 local function initializeHud()
     displayHud(hud.defaulthud)
     loadFonts()
     loadTextures()
     setRadarCompass(hud.radar.compass)
-    for i = 0, 6 do hztextdraws(i) end
+    for i = 0, 6 do 
+        hzTextDraws(i) 
+    end
 end
 
+-- Update Thread
 local function createUpdateThread()
     if not hudUpdateThread or coroutine.status(hudUpdateThread) == "dead" then
         hudUpdateThread = coroutine.create(function()
@@ -282,6 +353,7 @@ local function createUpdateThread()
     end
 end
 
+-- Resume Update Thread
 local function resumeUpdateThread()
     if hudUpdateThread and coroutine.status(hudUpdateThread) == "suspended" then
         local success, errorMsg = coroutine.resume(hudUpdateThread)
@@ -328,7 +400,7 @@ function main()
     local files = {}
     for i = 0, 48 do
         if i < 19 or i > 21 then
-            table.insert(files, {url = iconsUrl .. i .. ".png", path = iconsPath .. i .. ".png", replace = false})
+            table.insert(files, {url = urls.icons .. i .. ".png", path = iconsPath .. i .. ".png", replace = false})
         end
     end
 
@@ -421,7 +493,7 @@ local function shouldRenderElement(i)
     return i == 1
         or (i == 2 and (isNotNil(armorValues[1]) and armorValues[1] > 0 or hud.tog[i][3]))
         or (i == 3 and ((isPlayerSprinting and not isCharInAnyCar(ped) or hud.tog[i][3] or menu.settings[0])))
-        or (i == 4 and (menu.settings[0] or isCharInAnyCar(ped) or hud.tog[i][3] or spec.state))
+        or (i == 4 and (menu.settings[0] or isCharInAnyCar(ped) or hud.tog[i][3] or spectateData.state))
         or (i == 5 and (menu.settings[0] or isCharInWater(ped) or hud.tog[i][3]))
         or i == 6 or i == 7
 end
@@ -448,6 +520,43 @@ function onD3DPresent()
         end
         hudMove()
     end
+    --renderZones()
+end
+
+function renderZones()
+    for zoneName, coords in pairs(customZones) do
+        local x1, y1, z1, x2, y2, z2 = table.unpack(coords)
+        local screenCoords = {
+            {convert3DCoordsToScreen(x1, y1, z1)},
+            {convert3DCoordsToScreen(x2, y1, z1)},
+            {convert3DCoordsToScreen(x2, y2, z1)},
+            {convert3DCoordsToScreen(x1, y2, z1)},
+            {convert3DCoordsToScreen(x1, y1, z2)},
+            {convert3DCoordsToScreen(x2, y1, z2)},
+            {convert3DCoordsToScreen(x2, y2, z2)},
+            {convert3DCoordsToScreen(x1, y2, z2)}
+        }
+
+        local function drawLineIfOnScreen(p1, p2, x1, y1, z1, x2, y2, z2)
+            if isPointOnScreen(x1, y1, z1, 0) and isPointOnScreen(x2, y2, z2, 0) then
+                renderDrawLine(p1[1], p1[2], p2[1], p2[2], 1, 0xFF0000FF)
+            end
+        end
+
+        if #screenCoords == 8 then
+            local pairsToDraw = {
+                {1, 2, x1, y1, z1, x2, y1, z1}, {1, 3, x1, y1, z1, x2, y2, z1}, {2, 3, x2, y1, z1, x2, y2, z1}, {2, 4, x2, y1, z1, x1, y2, z1},
+                {3, 4, x2, y2, z1, x1, y2, z1}, {3, 1, x2, y2, z1, x1, y1, z1}, {4, 1, x1, y2, z1, x1, y1, z1}, {4, 2, x1, y2, z1, x2, y1, z1},
+                {5, 6, x1, y1, z2, x2, y1, z2}, {5, 7, x1, y1, z2, x2, y2, z2}, {6, 7, x2, y1, z2, x2, y2, z2}, {6, 8, x2, y1, z2, x1, y2, z2},
+                {7, 8, x2, y2, z2, x1, y2, z2}, {7, 5, x2, y2, z2, x1, y1, z2}, {8, 5, x1, y2, z2, x1, y1, z2}, {8, 6, x1, y2, z2, x2, y1, z2},
+                {1, 5, x1, y1, z1, x1, y1, z2}, {1, 7, x1, y1, z1, x2, y2, z2}, {2, 6, x2, y1, z1, x2, y1, z2}, {2, 8, x2, y1, z1, x1, y2, z2},
+                {3, 7, x2, y2, z1, x2, y2, z2}, {3, 5, x2, y2, z1, x1, y1, z2}, {4, 8, x1, y2, z1, x1, y2, z2}, {4, 6, x1, y2, z1, x2, y1, z2}
+            }
+            for _, pair in ipairs(pairsToDraw) do
+                drawLineIfOnScreen(screenCoords[pair[1]], screenCoords[pair[2]], pair[3], pair[4], pair[5], pair[6], pair[7], pair[8])
+            end
+        end
+    end
 end
 
 -- OnWindowMessage
@@ -465,31 +574,27 @@ end
 -- OnServerMessage
 function sampev.onServerMessage(color, text)
 	if text:find("turns off their wristwatch.") then
-		settings.wwtext = ''
+        clearGxtEntry("wwText")
 	end
 
 	if text:find("You have toggled off turfs on your radar/map.") then
-		settings.turftext = ''
+        clearGxtEntry("turfText")
 	end
 end
 
 -- OnTogglePlayerSpectating
 function sampev.onTogglePlayerSpectating(state)
-    if not state then spec.playerid = -1 end
-    spec.state = state
+    spectateData.id = state and spectateData.id or -1
+    spectateData.state = state
 end
 
 -- OnSendCommand
 function sampev.onSendCommand(command)
     local cmd = command:match("^/spec (.-)$")
-    if cmd and string.len(cmd) >= 1 then
-        if cmd:find('^%d+') then
-            spec.playerid = tonumber(cmd)
-        else
-            local res, id, _ = getTarget(cmd)
-            if res then
-                spec.playerid = id
-            end
+    if cmd then
+        local res, id, _ = findPlayer(cmd)
+        if res then
+            spectateData.id = id
         end
     end
 end
@@ -498,11 +603,11 @@ end
 local function handleTurfTextDraw(id, data)
     if tostring(data.letterWidth) == "0.23999999463558" and tostring(data.letterHeight) == "1.2000000476837" and data.text ~= "TURF OWNER:" then
         if hud.hzgsettings.turf.toggle[1] then
-            settings.turftext = data.text
+            setGxtEntry("turfText", data.text)
             data.position.x = hud.hzgsettings.turf.pos[1]
             data.position.y = hud.hzgsettings.turf.pos[2]
         else
-            settings.turftext = data.text
+            setGxtEntry("turfText", data.text)
             data.position.x = -100
             data.position.y = -100
         end
@@ -527,11 +632,11 @@ end
 local function handleWristwatchTextDraw(id, data)
     if tostring(data.letterWidth) == "0.5" and tostring(data.letterHeight) == "2" and data.text:match("%W") then
         if hud.hzgsettings.wristwatch.toggle[1] then
-            settings.wwtext = data.text
+            setGxtEntry("wwText", data.text)
             data.position.x = hud.hzgsettings.wristwatch.pos[1]
             data.position.y = hud.hzgsettings.wristwatch.pos[2]
         else
-            settings.wwtext = data.text
+            setGxtEntry("wwText", data.text)
             data.position.x = -100
             data.position.y = -100
         end
@@ -660,12 +765,12 @@ function sampev.onTextDrawSetString(id, text)
     local letSizeX, letSizeY, color = sampTextdrawGetLetterSizeAndColor(id)
 
     if tostring(letSizeX) == "0.23999999463558" and tostring(letSizeY) == "1.2000000476837" and text ~= "TURF OWNER:" then
-        settings.turftext = text
+        setGxtEntry("turfText", text)
         hud.color[8][8] = color
     end
 
     if tostring(letSizeX) == "0.5" and tostring(letSizeY) == "2" and text:match("%W") then
-        settings.wwtext = text
+        setGxtEntry("wwText", text)
     end
 
     if tostring(letSizeX) == "0.25999900698662" and tostring(letSizeY) == "1.2000000476837" and (posX == 577 or posX == 611) and posY == 65 then
@@ -967,113 +1072,113 @@ function()
             end
         end
 
-        toggleCheckbox('Turf', hud.hzgsettings.turf.toggle, function() hztextdraws(0) end)
+        toggleCheckbox('Turf', hud.hzgsettings.turf.toggle, function() hzTextDraws(0) end)
         imgui.SameLine()
         imgui.PushItemWidth(68)
         local pos1 = new.float[1](hud.hzgsettings.turf.pos[1])
         if imgui.DragFloat('##turf1', pos1, 1, 12 * 2000.0, 12 * 2000.0, "%.1f") then
             hud.hzgsettings.turf.pos[1] = pos1[0]
-            hztextdraws(0)
+            hzTextDraws(0)
         end
         imgui.SameLine()
         local pos2 = new.float[1](hud.hzgsettings.turf.pos[2])
         if imgui.DragFloat('##turf2', pos2, 1, 12 * 2000.0, 12 * 2000.0, "%.1f") then
             hud.hzgsettings.turf.pos[2] = pos2[0]
-            hztextdraws(0)
+            hzTextDraws(0)
         end
         imgui.PopItemWidth()
 
-        toggleCheckbox('Turf Owner', hud.hzgsettings.turfowner.toggle, function() hztextdraws(1) end)
+        toggleCheckbox('Turf Owner', hud.hzgsettings.turfowner.toggle, function() hzTextDraws(1) end)
         imgui.SameLine()
         local colorturf = new.float[3](convertColor(hud.hzgsettings.turfowner.color, true, false, false))
         if imgui.ColorEdit3('##colorturfowner', colorturf, imgui.ColorEditFlags.NoInputs + imgui.ColorEditFlags.NoLabel) then
             hud.hzgsettings.turfowner.color = joinARGB(255, colorturf[0], colorturf[1], colorturf[2], true)
-            hztextdraws(1)
+            hzTextDraws(1)
         end
         imgui.SameLine()
         imgui.PushItemWidth(68)
         local pos3 = new.float[1](hud.hzgsettings.turfowner.pos[1])
         if imgui.DragFloat('##turfowner1', pos3, 1, 12 * 2000.0, 12 * 2000.0, "%.1f") then
             hud.hzgsettings.turfowner.pos[1] = pos3[0]
-            hztextdraws(1)
+            hzTextDraws(1)
         end
         imgui.SameLine()
         local pos4 = new.float[1](hud.hzgsettings.turfowner.pos[2])
         if imgui.DragFloat('##turfowner2', pos4, 1, 12 * 2000.0, 12 * 2000.0, "%.1f") then
             hud.hzgsettings.turfowner.pos[2] = pos4[0]
-            hztextdraws(1)
+            hzTextDraws(1)
         end
         imgui.PopItemWidth()
 
-        toggleCheckbox('WW', hud.hzgsettings.wristwatch.toggle, function() hztextdraws(2) end)
+        toggleCheckbox('WW', hud.hzgsettings.wristwatch.toggle, function() hzTextDraws(2) end)
         imgui.SameLine()
         local colorww = new.float[3](convertColor(hud.hzgsettings.wristwatch.color, true, false, false))
         if imgui.ColorEdit3('##colorWW', colorww, imgui.ColorEditFlags.NoInputs + imgui.ColorEditFlags.NoLabel) then
             hud.hzgsettings.wristwatch.color = joinARGB(255, colorww[0], colorww[1], colorww[2], true)
-            hztextdraws(2)
+            hzTextDraws(2)
         end
         imgui.SameLine()
         imgui.PushItemWidth(68)
         local pos5 = new.float[1](hud.hzgsettings.wristwatch.pos[1])
         if imgui.DragFloat('##WW1', pos5, 1, 12 * 2000.0, 12 * 2000.0, "%.1f") then
             hud.hzgsettings.wristwatch.pos[1] = pos5[0]
-            hztextdraws(2)
+            hzTextDraws(2)
         end
         imgui.SameLine()
         local pos6 = new.float[1](hud.hzgsettings.wristwatch.pos[2])
         if imgui.DragFloat('##WW2', pos6, 1, 12 * 2000.0, 12 * 2000.0, "%.1f") then
             hud.hzgsettings.wristwatch.pos[2] = pos6[0]
-            hztextdraws(2)
+            hzTextDraws(2)
         end
         imgui.PopItemWidth()
 
-        toggleCheckbox('Logo', hud.hzgsettings.hzglogo.toggle, function() hztextdraws(3) end)
+        toggleCheckbox('Logo', hud.hzgsettings.hzglogo.toggle, function() hzTextDraws(3) end)
         imgui.SameLine()
         if imgui.Checkbox('Custom Logo', new.bool(hud.hzgsettings.hzglogo.toggle[2])) then
             hud.hzgsettings.hzglogo.toggle[2] = not hud.hzgsettings.hzglogo.toggle[2]
-            hztextdraws(3)
+            hzTextDraws(3)
         end
         imgui.SameLine()
         imgui.PushItemWidth(95)
         local text = new.char[30](hud.hzgsettings.hzglogo.customstring)
         if imgui.InputText('##logochangehzglogo', text, sizeof(text), imgui.InputTextFlags.EnterReturnsTrue) then
             hud.hzgsettings.hzglogo.customstring = u8:decode(str(text))
-            hztextdraws(3)
+            hzTextDraws(3)
         end
         imgui.PopItemWidth()
 
         local color2 = new.float[3](convertColor(hud.hzgsettings.hzglogo.color, true, false, false))
         if imgui.ColorEdit3('##colorhzglogo', color2, imgui.ColorEditFlags.NoInputs + imgui.ColorEditFlags.NoLabel) then
             hud.hzgsettings.hzglogo.color = joinARGB(255, color2[0], color2[1], color2[2], true)
-            hztextdraws(3)
+            hzTextDraws(3)
         end
         imgui.SameLine()
         imgui.PushItemWidth(68)
         local pos = new.float[1](hud.hzgsettings.hzglogo.pos[1])
         if imgui.DragFloat('##hzglogo1', pos, 1, 12 * 2000.0, 12 * 2000.0, "%.1f") then
             hud.hzgsettings.hzglogo.pos[1] = pos[0]
-            hztextdraws(3)
+            hzTextDraws(3)
         end
         imgui.SameLine()
         local pos7 = new.float[1](hud.hzgsettings.hzglogo.pos[2])
         if imgui.DragFloat('##hzglogo2', pos7, 1, 12 * 2000.0, 12 * 2000.0, "%.1f") then
             hud.hzgsettings.hzglogo.pos[2] = pos7[0]
-            hztextdraws(3)
+            hzTextDraws(3)
         end
         imgui.PopItemWidth()
 
-        toggleCheckbox('HP Bar', hud.hzgsettings.hpbar.toggle, function() hztextdraws(4) end)
+        toggleCheckbox('HP Bar', hud.hzgsettings.hpbar.toggle, function() hzTextDraws(4) end)
         imgui.SameLine()
         local color4 = new.float[3](convertColor(hud.hzgsettings.hpbar.color1, true, false, false))
         if imgui.ColorEdit3('##colorhpbar1', color4, imgui.ColorEditFlags.NoInputs + imgui.ColorEditFlags.NoLabel) then
             hud.hzgsettings.hpbar.color1 = joinARGB(255, color4[0], color4[1], color4[2], true)
-            hztextdraws(4)
+            hzTextDraws(4)
         end
         imgui.SameLine()
         local color5 = new.float[3](convertColor(hud.hzgsettings.hpbar.color2, true, false, false))
         if imgui.ColorEdit3('##colorhpbar2', color5, imgui.ColorEditFlags.NoInputs + imgui.ColorEditFlags.NoLabel) then
             hud.hzgsettings.hpbar.color2 = joinARGB(255, color5[0], color5[1], color5[2], true)
-            hztextdraws(4)
+            hzTextDraws(4)
         end
         imgui.SameLine()
         local color6 = new.float[3](convertColor(hud.hzgsettings.hpbar.color3, true, false, false))
@@ -1082,8 +1187,8 @@ function()
             hztextdraws(4)
         end
 
-        toggleCheckbox('HP Text', hud.hzgsettings.hptext.toggle, function() hztextdraws(5) end)
-        toggleCheckbox('Armor Text', hud.hzgsettings.armortext.toggle, function() hztextdraws(6) end)
+        toggleCheckbox('HP Text', hud.hzgsettings.hptext.toggle, function() hzTextDraws(5) end)
+        toggleCheckbox('Armor Text', hud.hzgsettings.armortext.toggle, function() hzTextDraws(6) end)
     elseif mid == 10 then
         for k, v in ipairs(hud.pos) do
             imgui.PushItemWidth(120)
@@ -1114,12 +1219,12 @@ function()
                 if not move or v.move then
                     v.move = not v.move
                     if v.move then
-                        assets.temp_pos.x = v.x
-                        assets.temp_pos.y = v.y
+                        assets.tempPos.x = v.x
+                        assets.tempPos.y = v.y
                         move = true
                     else
-                        v.x = assets.temp_pos.x
-                        v.y = assets.temp_pos.y
+                        v.x = assets.tempPos.x
+                        v.y = assets.tempPos.y
                         move = false
                     end
                 end
@@ -1518,13 +1623,205 @@ function alignText(fid, value, align)
 	return align == 2 and length / 2 or align == 3 and length or 0
 end
 
--- Hud value and update functions.
+-- Hud value and update functions
+local function formatedMoney(n)
+    return string.format("%s%s", hud.tog[7][3] and '$' or '', hud.tog[7][4] and formatNumber(n) or n)
+end
+
+local function formatedAmmo(ammo, clip)
+    return string.format("%s", hud.tog[6][5] and (string.format("%d-%d", ammo - clip, clip)) or clip)
+end
+
 local function updateValue(table, index, newValue)
-    if table[index] ~= newValue then
+    if table[index] ~= newValue or (newValue == nil and table[index] ~= nil) then
         table[index] = newValue
         return true  -- Indicate that the value was updated
     end
     return false  -- Indicate that the value didn't change
+end
+
+local function updateVehicleInfo(id)
+    local updated = false
+    if isCharInAnyCar(id) then
+        local vehid = storeCarCharIsInNoSave(id)
+        local model = getCarModel(vehid)
+        local vehhp = getCarHealth(vehid)
+        local carName = getVehicleName(model)
+        local speed = string.format("%d %s", convertSpeed(getCarSpeed(vehid), hud.tog[8][9][2]), hud.tog[8][9][2] and "MPH" or "KMH")
+        local maxvalue = (contains(assets.maxVehHPIds, model) and hud.tog[4][4]) and 2500 or 1000
+        
+        updated = updateValue(vehicleValues, 1, vehhp) or updated
+        updated = updateValue(miscValues, 9, speed) or updated
+        updated = updateValue(miscValues, 10, carName) or updated
+        
+        if hud.maxvalue[4] ~= maxvalue then
+            hud.maxvalue[4] = maxvalue
+            updated = true
+        end
+    else
+        updated = updateValue(vehicleValues, 1, hud.tog[4][3] and 0 or nil) or updated
+        updated = updateValue(miscValues, 9, nil) or updated
+        updated = updateValue(miscValues, 10, nil) or updated
+    end
+    return updated
+end
+
+local function updateTextDrawColors()
+    local updated = false
+    for i = 0, 3000 do
+        if sampTextdrawIsExists(i) then
+            local letSizeX, letSizeY, color = sampTextdrawGetLetterSizeAndColor(i)
+            local text = sampTextdrawGetString(i)
+            if tostring(letSizeX) == tostring(0.23999999463558) and tostring(letSizeY) == tostring(1.2000000476837) and text ~= "TURF OWNER:" then
+                if hud.color[8][8] ~= color then
+                    hud.color[8][8] = color
+                    updated = true
+                end
+                break  -- We found what we were looking for, no need to continue the loop
+            end
+        end
+    end
+    return updated
+end
+
+local function updateBadgeTextAndColor(color)
+    local rgb = convertColor(color, false, false, false)
+    local argbColor = joinARGB(255, rgb[1], rgb[2], rgb[3], false)
+    
+    for _, v in pairs(assets.badgeNames) do
+        if argbColor == v[1] then
+            if hud.color[8][11] ~= v[1] or miscValues[11] ~= v[2] then
+                hud.color[8][11] = v[1]
+                updateValue(miscValues, 11, v[2])
+                return true
+            end
+            return false
+        end
+    end
+    return updateValue(miscValues, 11, nil)
+end
+
+local function updatePlayerInfo(id, handle, isSpec)
+    local hp = sampGetPlayerHealth(id)
+    local weap = getCurrentCharWeapon(handle)
+    local nickName = string.format("%s (%d)", sampGetPlayerNickname(id), id)
+    local localTime = os.date(hud.tog[8][2][2] and '%I:%M:%S' or '%H:%M:%S')
+    local serverTime = getGxtText("wwText")
+    local ping = string.format("%s%d", hud.tog[8][4][2] and 'Ping: ' or '', sampGetPlayerPing(id))
+    local fps = string.format("%s%d", hud.tog[8][5][2] and 'FPS: ' or '', fps)
+    local angle = getDirection(isSpec and getCharHeading(handle) or hud.tog[8][6][2] and getCameraZAngle() or getCharHeading(handle))
+    local zoneName, subZoneName = getPlayerZoneName(handle)
+    local zone = subZoneName and string.format("%s (%s)", zoneName, subZoneName) or zoneName
+    local turf = getActiveInterior() == 0 and getGxtText("turfText") or nil
+    
+    if not isSpec then
+        for _, v in pairs(hud.serverhp) do
+            if hp >= v then
+                hp = hp - v
+            end
+        end
+    end
+
+    local updated = false
+    updated = updateValue(healthValues, 1, hp) or updated
+    updated = updateValue(armorValues, 1, sampGetPlayerArmor(id)) or updated
+
+    if isSpec then
+        updated = updateValue(sprintValues, 1, nil) or updated
+        updated = updateValue(breathValues, 1, nil) or updated
+    else
+        updated = updateValue(sprintValues, 1, getSprintLevel()) or updated
+        updated = updateValue(breathValues, 1, getWaterLevel()) or updated
+    end
+
+    updated = updateValue(weaponValues, 1, weap) or updated
+    updated = updateValue(weaponValues, 2, formatedAmmo(getAmmoInCharWeapon(handle, weap), getAmmoInClip(handle, weap))) or updated
+    updated = updateValue(weaponValues, 3, weapons.get_name(weap)) or updated
+
+    if isSpec then
+        updated = updateValue(moneyWantedValues, 1, nil) or updated
+        updated = updateValue(moneyWantedValues, 2, nil) or updated
+    else
+        updated = updateValue(moneyWantedValues, 1, getWantedLevel()) or updated
+        updated = updateValue(moneyWantedValues, 2, formatedMoney(getPlayerMoney())) or updated
+    end
+    
+    updated = updateValue(miscValues, 1, nickName) or updated
+    updated = updateValue(miscValues, 2, localTime) or updated
+    updated = updateValue(miscValues, 3, serverTime) or updated
+    updated = updateValue(miscValues, 4, ping) or updated
+    updated = updateValue(miscValues, 5, fps) or updated
+    updated = updateValue(miscValues, 6, angle) or updated
+    updated = updateValue(miscValues, 7, zone) or updated
+    updated = updateValue(miscValues, 8, turf) or updated
+
+    return updated
+end
+
+local function updateDemoValues()
+    local demoValues = {
+        healthValues = {50},
+        armorValues = {50},
+        sprintValues = {100},
+        vehicleValues = {1000},
+        breathValues = {100},
+        weaponValues = {24, formatedAmmo(50000, 7), 'Desert Eagle'},
+        moneyWantedValues = {6, formatedMoney(1000000)},
+        miscValues = {'Player_Name', 'Local-Time', 'Server-Time', 'Ping', (hud.tog[8][5][2] and 'FPS: ' or '') .. fps, 'Direction', 'Location', 'Turf', 'Vehicle Speed', 'Vehicle Name', 'Badge'}
+    }
+    local updated = false
+    for tableName, values in pairs(demoValues) do
+        for i, value in ipairs(values) do
+            if tableName == "healthValues" then
+                updated = updateValue(healthValues, i, value) or updated
+            elseif tableName == "armorValues" then
+                updated = updateValue(armorValues, i, value) or updated
+            elseif tableName == "sprintValues" then
+                updated = updateValue(sprintValues, i, value) or updated
+            elseif tableName == "vehicleValues" then
+                updated = updateValue(vehicleValues, i, value) or updated
+            elseif tableName == "breathValues" then
+                updated = updateValue(breathValues, i, value) or updated
+            elseif tableName == "weaponValues" then
+                updated = updateValue(weaponValues, i, value) or updated
+            elseif tableName == "moneyWantedValues" then
+                updated = updateValue(moneyWantedValues, i, value) or updated
+            elseif tableName == "miscValues" then
+                updated = updateValue(miscValues, i, value) or updated
+            end
+        end
+    end
+    return updated
+end
+
+-- Function to update HUD values
+function hudValues()
+    local res, id = sampGetPlayerIdByCharHandle(ped)
+    if not res then 
+        return 
+    end
+
+    if menu.settings[0] then
+        return updateDemoValues()
+    end
+
+    local updated = false
+    updated = updateTextDrawColors() or updated
+
+    if spectateData.state and spectateData.id ~= -1 and sampIsPlayerConnected(spectateData.id) then
+        local res, handle = sampGetCharHandleBySampPlayerId(spectateData.id)
+        if res then
+            updated = updatePlayerInfo(spectateData.id, handle, spectateData.state) or updated
+            updated = updateVehicleInfo(handle) or updated
+            updated = updateBadgeTextAndColor(sampGetPlayerColor(spectateData.id)) or updated
+        end
+    else
+        updated = updatePlayerInfo(id, ped, false) or updated
+        updated = updateVehicleInfo(ped) or updated
+        updated = updateBadgeTextAndColor(sampGetPlayerColor(id)) or updated
+    end
+
+    return updated
 end
 
 function resetValues()
@@ -1559,202 +1856,6 @@ function resetValues()
     for i = 1, #miscValues do
         miscValues[i] = nil
     end
-end
-
-local function formatmoney(n)
-    return (hud.tog[7][3] and '$' or '') .. (hud.tog[7][4] and formatNumber(n) or n)
-end
-
-local function formatammo(ammo, clip)
-    return hud.tog[6][5] and ammo - clip..'-'..clip or clip
-end
-
-local function updateVehicleInfo(id)
-    local updated = false
-    if isCharInAnyCar(id) then
-        local vehid = storeCarCharIsInNoSave(id)
-        local model = getCarModel(vehid)
-        local vehhp = getCarHealth(vehid)
-        local carName = getVehicleName(model)
-        local speed = hud.tog[8][9][2] and getSpeedInMPH(getCarSpeed(vehid)) .. " MPH" or getSpeedInKMH(getCarSpeed(vehid)) .. " KMH"
-        local maxvalue = (hasValue(assets.maxVehHPIds, model) and hud.tog[4][4]) and 2500 or 1000
-        
-        updated = updateValue(vehicleValues, 1, vehhp) or updated
-        updated = updateValue(miscValues, 9, speed) or updated
-        updated = updateValue(miscValues, 10, carName) or updated
-        
-        if hud.maxvalue[4] ~= maxvalue then
-            hud.maxvalue[4] = maxvalue
-            updated = true
-        end
-    else
-        updated = updateValue(vehicleValues, 1, nil) or updated
-        updated = updateValue(miscValues, 9, nil) or updated
-        updated = updateValue(miscValues, 10, nil) or updated
-    end
-    return updated
-end
-
-local function updateBadgeTextAndColor(color)
-    local rgb = convertColor(color, false, false, false)
-    local argbColor = joinARGB(255, rgb[1], rgb[2], rgb[3], false)
-    
-    for _, v in pairs(assets.badgeNames) do
-        if argbColor == v[1] then
-            if hud.color[8][11] ~= v[1] or miscValues[11] ~= v[2] then
-                hud.color[8][11] = v[1]
-                updateValue(miscValues, 11, v[2])
-                return true
-            end
-            return false
-        end
-    end
-    return updateValue(miscValues, 11, nil)
-end
-
-local function updateTextDrawColors()
-    local updated = false
-    for i = 0, 3000 do
-        if sampTextdrawIsExists(i) then
-            local letSizeX, letSizeY, color = sampTextdrawGetLetterSizeAndColor(i)
-            local text = sampTextdrawGetString(i)
-            if tostring(letSizeX) == tostring(0.23999999463558) and tostring(letSizeY) == tostring(1.2000000476837) and text ~= "TURF OWNER:" then
-                if hud.color[8][8] ~= color then
-                    hud.color[8][8] = color
-                    updated = true
-                end
-                break  -- We found what we were looking for, no need to continue the loop
-            end
-        end
-    end
-    return updated
-end
-
-local function updatePlayerInfo(id)
-    local updated = false
-    local weap = getCurrentCharWeapon(ped)
-    local angle = hud.tog[8][6][2] and getCameraZAngle() or getCharHeading(ped)
-    local ping = (hud.tog[8][4][2] and 'Ping: ' or '') .. sampGetPlayerPing(id)
-
-    local hp = sampGetPlayerHealth(id)
-    for _, v in pairs(hud.serverhp) do
-        if hp >= v then
-            hp = hp - v
-        end
-    end
-
-    updated = updateValue(healthValues, 1, hp) or updated
-    updated = updateValue(armorValues, 1, sampGetPlayerArmor(id)) or updated
-    updated = updateValue(sprintValues, 1, getSprintLevel()) or updated
-    updated = updateValue(breathValues, 1, getWaterLevel()) or updated
-
-    updated = updateValue(weaponValues, 1, weap) or updated
-    updated = updateValue(weaponValues, 2, formatammo(getAmmoInCharWeapon(ped, weap), getAmmoInClip(ped, weap))) or updated
-    updated = updateValue(weaponValues, 3, weapons.get_name(weap)) or updated
-
-    updated = updateValue(moneyWantedValues, 1, getWantedLevel()) or updated
-    updated = updateValue(moneyWantedValues, 2, formatmoney(getPlayerMoney())) or updated
-
-    updated = updateValue(miscValues, 1, string.format("%s (%d)", sampGetPlayerNickname(id), id)) or updated
-    updated = updateValue(miscValues, 2, os.date(hud.tog[8][2][2] and '%I:%M:%S' or '%H:%M:%S')) or updated
-    updated = updateValue(miscValues, 3, settings.wwtext) or updated
-    updated = updateValue(miscValues, 4, ping) or updated
-    updated = updateValue(miscValues, 5, (hud.tog[8][5][2] and 'FPS: ' or '') .. fps) or updated
-    updated = updateValue(miscValues, 6, getDirection(angle)) or updated
-    updated = updateValue(miscValues, 7, getPlayerZoneName(ped)) or updated
-    updated = updateValue(miscValues, 8, settings.turftext) or updated
-
-    return updated
-end
-
-local function updateSpecPlayerInfo(handle)
-    local updated = false
-    local weap = getCurrentCharWeapon(handle)
-    local angle = getCharHeading(handle)
-
-    updated = updateValue(healthValues, 1, sampGetPlayerHealth(spec.playerid)) or updated
-    updated = updateValue(armorValues, 1, sampGetPlayerArmor(spec.playerid)) or updated
-    updated = updateValue(sprintValues, 1, nil) or updated
-    updated = updateValue(breathValues, 1, nil) or updated
-
-    updated = updateValue(weaponValues, 1, weap) or updated
-    updated = updateValue(weaponValues, 2, formatammo(getAmmoInCharWeapon(handle, weap), getAmmoInClip(handle, weap))) or updated
-    updated = updateValue(weaponValues, 3, weapons.get_name(weap)) or updated
-
-    updated = updateValue(moneyWantedValues, 1, nil) or updated
-    updated = updateValue(moneyWantedValues, 2, nil) or updated
-
-    updated = updateValue(miscValues, 1, string.format("%s (%d)", sampGetPlayerNickname(spec.playerid), spec.playerid)) or updated
-    updated = updateValue(miscValues, 2, os.date(hud.tog[8][2][2] and '%I:%M:%S' or '%H:%M:%S')) or updated
-    updated = updateValue(miscValues, 3, settings.wwtext) or updated
-    updated = updateValue(miscValues, 4, (hud.tog[8][4][2] and 'Ping: ' or '') .. sampGetPlayerPing(spec.playerid)) or updated
-    updated = updateValue(miscValues, 5, (hud.tog[8][5][2] and 'FPS: ' or '') .. fps) or updated
-    updated = updateValue(miscValues, 6, getDirection(angle)) or updated
-    updated = updateValue(miscValues, 7, getPlayerZoneName(handle)) or updated
-    updated = updateValue(miscValues, 8, settings.turftext) or updated
-
-    return updated
-end
-
--- Function to update HUD values
-function hudValues()
-    local res, id = sampGetPlayerIdByCharHandle(ped)
-    if not res then return false end
-
-    if menu.settings[0] then
-        local demoValues = {
-            healthValues = {50},
-            armorValues = {50},
-            sprintValues = {100},
-            vehicleValues = {1000},
-            breathValues = {100},
-            weaponValues = {24, formatammo(50000, 7), 'Desert Eagle'},
-            moneyWantedValues = {6, formatmoney(1000000)},
-            miscValues = {'Player_Name', 'Local-Time', 'Server-Time', 'Ping', (hud.tog[8][5][2] and 'FPS: ' or '') .. fps, 'Direction', 'Location', 'Turf', 'Vehicle Speed', 'Vehicle Name', 'Badge'}
-        }
-        local updated = false
-        for tableName, values in pairs(demoValues) do
-            for i = 1, #values do
-                if tableName == "healthValues" then
-                    updated = updateValue(healthValues, i, values[i]) or updated
-                elseif tableName == "armorValues" then
-                    updated = updateValue(armorValues, i, values[i]) or updated
-                elseif tableName == "sprintValues" then
-                    updated = updateValue(sprintValues, i, values[i]) or updated
-                elseif tableName == "vehicleValues" then
-                    updated = updateValue(vehicleValues, i, values[i]) or updated
-                elseif tableName == "breathValues" then
-                    updated = updateValue(breathValues, i, values[i]) or updated
-                elseif tableName == "weaponValues" then
-                    updated = updateValue(weaponValues, i, values[i]) or updated
-                elseif tableName == "moneyWantedValues" then
-                    updated = updateValue(moneyWantedValues, i, values[i]) or updated
-                elseif tableName == "miscValues" then
-                    updated = updateValue(miscValues, i, values[i]) or updated
-                end
-            end
-        end
-        return updated
-    end
-    local updated = updateTextDrawColors()
-    if getActiveInterior() ~= 0 then
-        updated = updateValue(miscValues, 8, nil) or updated
-    end
-
-    updated = updateVehicleInfo(ped) or updated
-    updated = updateBadgeTextAndColor(sampGetPlayerColor(id)) or updated
-
-    if spec.state and spec.playerid ~= -1 and sampIsPlayerConnected(spec.playerid) then
-        local res, handle = sampGetCharHandleBySampPlayerId(spec.playerid)
-        if res then
-            updated = updateSpecPlayerInfo(handle) or updated
-            updated = updateVehicleInfo(handle) or updated
-        end
-    else
-        updated = updatePlayerInfo(id) or updated
-    end
-
-    return updated
 end
 
 -- Move Functions
@@ -1865,7 +1966,7 @@ function hudMove()
     end
 end
 
--- Textdraws
+-- Textdraw Functions
 local function setPosition(i, pos, toggle)
     if not toggle then pos = {-100, -100} end
     sampTextdrawSetPos(i, pos[1], pos[2])
@@ -1886,15 +1987,13 @@ local function setHPAndArmorText(i, text, toggle, color)
 end
 
 -- Handle Textdraws
-function hztextdraws(id)
+function hzTextDraws(id)
     for i = 0, 4000 do
         if sampTextdrawIsExists(i) then
             local posX, posY = sampTextdrawGetPos(i)
-            local box, _, sizeX, sizeY = sampTextdrawGetBoxEnabledColorAndSize(i)
             local letSizeX, letSizeY, color = sampTextdrawGetLetterSizeAndColor(i)
-            local text = sampTextdrawGetString(i)
-
             local letSizeXStr, letSizeYStr = tostring(letSizeX), tostring(letSizeY)
+            local text = sampTextdrawGetString(i)
 
             if letSizeXStr == "0.23999999463558" and letSizeYStr == "1.2000000476837" then
                 if text ~= "TURF OWNER:" and id == 0 then
@@ -1916,6 +2015,7 @@ function hztextdraws(id)
             end
 
             if id == 4 then
+                local box, _, sizeX, sizeY = sampTextdrawGetBoxEnabledColorAndSize(i)
                 if math.floor(posX) == 610 and math.floor(posY) == 68 then
                     if hud.hzgsettings.hpbar.toggle[1] then
                         if hzhpbartext[1] ~= '' then
@@ -1961,16 +2061,26 @@ function hztextdraws(id)
 end
 
 -- Radar Functions
+local function allocateAndAssign(value)
+    local ptr = ffi.cast('float*', ffi.C.malloc(ffi.sizeof('float')))
+    ptr[0] = tonumber(value)
+    table.insert(allocatedPointers, ptr)
+    return ptr
+end
+
+local function freeAllocatedPointers()
+    for _, ptr in ipairs(allocatedPointers) do
+        ffi.C.free(ptr)
+    end
+    allocatedPointers = {}
+end
+
 function changeRadarPosAndSize(posX, posY, sizeX, sizeY)
-    if (posX == currentRadarPosX) and (posY == currentRadarPosY) and (sizeX == currentRadarSizeX) and (sizeY == currentRadarSizeY) then
+    if (posX == radarConfig.posX) and (posY == radarConfig.posY) and (sizeX == radarConfig.sizeX) and (sizeY == radarConfig.sizeY) then
         return
     end
 
-    local function allocateAndAssign(value)
-        local ptr = ffi.cast('float*', ffi.C.malloc(4))
-        ptr[0] = value
-        return ptr
-    end
+    freeAllocatedPointers()
 
     local addresses = {
         {allocateAndAssign(posX), {0x58A79B, 0x5834D4, 0x58A836, 0x58A8E9, 0x58A98A, 0x58A469, 0x58A5E2, 0x58A6E6}},
@@ -1984,12 +2094,11 @@ function changeRadarPosAndSize(posX, posY, sizeX, sizeY)
             ffi.cast('float**', addr)[0] = value
         end
     end
-
-    currentRadarPosX, currentRadarPosY, currentRadarSizeX, currentRadarSizeY = posX, posY, sizeX, sizeY
+    radarConfig.posX, radarConfig.posY, radarConfig.sizeX, radarConfig.sizeY = posX, posY, sizeX, sizeY
 end
 
 function changeRadarColor(color)
-    if color == currentRadarColor then
+    if color == radarConfig.color then
         return
     end
 
@@ -2006,7 +2115,7 @@ function changeRadarColor(color)
             mem.write(addr, value, 1, true)
         end
     end
-    currentRadarColor = color
+    radarConfig.color = color
 end
 
 function setRadarCompass(bool)
@@ -2051,12 +2160,8 @@ function getWantedLevel()
 	return mem.getuint8(0x58DB60)
 end
 
-function getSpeedInMPH(speed)
-    return math.ceil(speed * 2.98)
-end
-
-function getSpeedInKMH(speed)
-    return math.ceil(speed * 4.80)
+function convertSpeed(speed, isMPH)
+    return math.ceil(speed * (isMPH and 2.98 or 4.80))
 end
 
 function getVehicleName(modelId)
@@ -2067,24 +2172,33 @@ function getZoneName(x, y , z)
 	return getGxtText(getNameOfZone(x, y, z))
 end
 
-function getPlayerZoneName(id)
-    if getActiveInterior() ~= 0 then return 'Interior' end
-	local x, y, z = getCharCoordinates(id)
-	for k, v in pairs(customZones) do
-        if (x >= v[1]) and (y >= v[2]) and (z >= v[3]) and (x <= v[4]) and (y <= v[5]) and (z <= v[6]) then
-            return k
+function getCustomZoneName(x, y, z)
+    for zoneName, box in pairs(customZones) do
+        if x >= box[1] and x <= box[4] and y >= box[2] and y <= box[5] and z >= box[3] and z <= box[6] then
+            return zoneName
         end
     end
-    return getZoneName(x, y, z)
+    return nil
+end
+
+function getSubZoneName(x, y, z)
+    return subZones[getNameOfInfoZone(x, y, z)] or nil
+end
+
+function getPlayerZoneName(handleId)
+    local x, y, z = getCharCoordinates(handleId)
+    local zoneName = getActiveInterior() ~= 0 and 'Interior' or getCustomZoneName(x, y, z) or getZoneName(x, y, z)
+    local subZoneName = getSubZoneName(x, y, z)
+    return zoneName, subZoneName
 end
 
 function getDirection(angle)
     for _, dir in ipairs(directionData) do
         if math.floor(angle) >= dir.min and math.floor(angle) <= dir.max then
-            return dir.direction
+            return dir.name
         end
     end
-    return false
+    return nil
 end
 
 function getCameraZAngle()
@@ -2093,22 +2207,29 @@ function getCameraZAngle()
 	return getHeadingFromVector2d(tx-cx, ty-cy)
 end
 
-function getTarget(nick)
-    if not nick then return false end
+function findPlayer(target)
+    if not target then return nil end
+
+    local targetId = tonumber(target)
+    if targetId and sampIsPlayerConnected(targetId) then
+        return true, targetId, sampGetPlayerNickname(targetId)
+    end
+
     for i = 0, sampGetMaxPlayerId(false) do
         if sampIsPlayerConnected(i) then
             local name = sampGetPlayerNickname(i)
-            if name:lower():find("^" .. nick:lower()) then
+            if name:lower():find("^" .. target:lower()) then
                 return true, i, name
             end
         end
     end
-    return false
+
+    return nil
 end
 
 -- Update Functions
 function checkForUpdate()
-    local url = settings.beta and updateUrlBeta or updateUrl
+    local url = settings.beta and urls.updateBeta or urls.update
     downloadFiles({{url = url, path = updateFile, replace = true}}, function(result)
         if result then
             local file = io.open(updateFile, "r")
@@ -2128,7 +2249,7 @@ end
 function updateScript()
     settings.updateInProgress = true
     settings.lastVersion = scriptVersion
-    downloadFiles({{url = settings.beta and scriptUrlBeta or scriptUrl, path = scriptPath, replace = true}}, function(result)
+    downloadFiles({{url = settings.beta and urls.scriptBeta or urls.script, path = scriptPath, replace = true}}, function(result)
         if result then
             formattedAddChatMessage("Update downloaded successfully! Reloading the script now.", -1)
             thisScript():reload()
@@ -2402,7 +2523,7 @@ function displayChangelog()
     end
 end
 
-function hasValue(tab, val)
+function contains(tab, val)
     for _, v in ipairs(tab) do
         if v == val then
             return true
