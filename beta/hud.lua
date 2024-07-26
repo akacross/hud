@@ -381,7 +381,7 @@ function main()
         saveConfigWithErrorHandling(settingsFile, settings)
     else
         if settings.checkForUpdates then 
-            checkForUpdates() 
+            checkForUpdate() 
         end
     end
 
@@ -868,7 +868,7 @@ function()
             end
         end)
         toggleButton(fa.RETWEET .. ' Update', 309, false, 'Check for update', function()
-            checkForUpdates()
+            checkForUpdate()
         end)
     imgui.EndChild()
 
