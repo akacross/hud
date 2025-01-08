@@ -1,11 +1,18 @@
 script_name("hud")
+script_description("Customizable HUD")
+script_version("1.4.36")
 script_author("akacross")
-script_version("1.4.34")
 script_url("https://akacross.net/")
 
 local changelog = {
+    ["1.4.36"] = {
+        "Zhao decided to move the HP Bar location, fixed the removal of the HP Bar",
+    },
+    ["1.4.35"] = {
+        "Fixed issue where you could not move any text elements, ids 1 through 5 were using the wrong index for the value table",
+    },
     ["1.4.34"] = {
-        "Added changelog functionality to show the latest changes in the script and show the changelog after an update is finished", -- Needs finished (/hud.changelog)
+        "Added changelog functionality to show the latest changes in the script and show the changelog after an update is finished",
         "Rewritten the dependency manager to improve module loading and error handling",
         "Enhanced error handling for the dependency manager to provide detailed error messages",
         "Reorganized and refactored various sections of the script for better readability and maintainability",
@@ -93,34 +100,51 @@ if #statusMessages.failed > 0 then
     print("Failed to load modules: " .. table.concat(statusMessages.failed, ", "))
 end
 
+-- Dynamically set script dependencies based on loaded modules
+script_dependencies(table.unpack(statusMessages.success))
+
 -- Encoding
 encoding.default = 'CP1251'
 local u8 = encoding.UTF8
 
--- Paths
-local workingDir = getWorkingDirectory()
-local configDir = workingDir .. '\\config\\'
-local resourceDir = workingDir .. '\\resource\\'
+-- Get path
+local function getPath(type)
+    local config = getWorkingDirectory() .. '\\config\\'
+    local resource = getWorkingDirectory() .. '\\resource\\'
+    local settings = config .. scriptName .. '\\'
+    local resources = resource .. scriptName .. '\\'
 
--- Configs
-local cfgPath = configDir .. scriptName .. '\\'
-local cfgFolder = cfgPath .. 'configs\\'
-local settingsFile = cfgPath .. 'settings.json'
-local updateFile = cfgPath .. 'update.txt'
+    local paths = {
+        config = config,
+        settings = settings,
+        configs = settings .. 'configs\\',
+        resource = resource,
+        resources = resources,
+        icons = resources .. 'weapons\\'
+    }
+    return type and (paths[type] or error("Invalid path type")) or paths
+end
 
--- Resources
-local resourcePath = resourceDir .. scriptName .. '\\'
-local iconsPath = resourcePath .. 'weapons\\'
+-- Get file paths
+local function getFile(type)
+    local files = {
+        settings = getPath('settings') .. 'settings.json',
+        update = getPath('settings') .. 'update.txt',
+    }
+    return files[type] or error("Invalid file type")
+end
 
--- URLs
-local baseUrl = "https://raw.githubusercontent.com/akacross/hud/main/"
-local urls = {
-    script = baseUrl .. "hud.lua",
-    scriptBeta = baseUrl .. "beta/hud.lua",
-    update = baseUrl .. "hud.txt",
-    updateBeta = baseUrl .. "beta/hud.txt",
-    icons = baseUrl .. "resource/hud/weapons/"
-}
+-- Fetch URLs
+local function fetchUrls(type, isBeta)
+    local baseUrl = "https://raw.githubusercontent.com/akacross/" .. scriptName .. "/main/"
+    local subPath = isBeta and "beta/" or ""
+    local paths = {
+        script = baseUrl .. subPath .. scriptName .. ".lua",
+        update = baseUrl .. subPath .. scriptName .. ".txt",
+        icons = baseUrl .. "resource/" .. scriptName .. "/weapons/"
+    }
+    return paths[type] or error("Invalid URL type")
+end
 
 -- Global Variables
 local ped, h = playerPed, playerHandle
@@ -148,7 +172,7 @@ local settings_defaultSettings = {
     updateInProgress = false,
     lastVersion = "Unknown",
     autosave = false,
-    beta = true
+    beta = false
 }
 
 -- HUD Configuration
@@ -224,12 +248,19 @@ local breathValues = {nil}
 local moneyWantedValues = {nil, nil}
 local miscValues = {nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil}
 
+-- Value Tables
+local valueTables = {
+    healthValues,
+    armorValues,
+    sprintValues,
+    vehicleValues,
+    breathValues
+}
+
 -- Radar Configuration
 local radarConfig = {
-    posX = nil,
-    posY = nil,
-    sizeX = nil,
-    sizeY = nil,
+    posX = nil, posY = nil,
+    sizeX = nil, sizeY = nil,
     color = nil
 }
 
@@ -268,7 +299,7 @@ local selected = {}
 local hudUpdateThread
 local isPlayerSprinting = false
 local lastSprintPressTime = os.clock()
-local sprintDelay = 0.8 -- delay in seconds
+local sprintDelay = 0.8
 local fps = 0
 local fps_counter = 0
 local allocatedPointers = {}
@@ -277,8 +308,7 @@ local allocatedPointers = {}
 local subZones = {
     GAN1 = 'Grove Street', GAN2 = "Apartments", IWD1 = 'Freeway', IWD2 = 'Drug Den', IWD3A = 'Gas Station', IWD3B = 'Maximus Club',
     IWD4 = 'Ghetto Area', IWD5 = 'Pizza', LMEX1A = "South", LMEX1B = "North", ELS1A = "Crack Lab", ELS1B = "Pig Pen", ELS2 = "Apartments", 
-    ELS3A = "The Court", ELS3C = "Alleyway", ELS4 = "Carwash", ELCO1 = "Unity Station", ELCO2 = "Apartments", ELCO1 = "Unity Station", 
-    ELCO2 = "Apartments", UNITY = "Traintracks", LIND1A = "West", LIND2B = "South", LIND1A = "North", LIND2A = "South", LIND3 = "East"
+    ELS3A = "The Court", ELS3C = "Alleyway", ELS4 = "Carwash", ELCO1 = "Unity Station", ELCO2 = "Apartments", LIND1A = "West", LIND2A = "South", LIND2B = "South", LIND3 = "East"
 }
 
 local customZones = {
@@ -311,12 +341,145 @@ local spectateData = {
 	state = false
 }
 
--- FFI Configuration
+-- FFI Definitions
 ffi.cdef[[
     typedef unsigned long DWORD;
     void* malloc(size_t size);
     void free(void* ptr);
+
+    typedef unsigned char RwUInt8;
+    typedef int RwInt32;
+    typedef struct RwRaster RwRaster;
+    struct RwRaster {
+        struct RwRaster*            parent;
+        RwUInt8*                    cpPixels;
+        RwUInt8*                    palette;
+        RwInt32                     width, height, depth;
+        RwInt32                     stride;
+        RwUInt8*                    originalPixels;
+        RwInt32                     originalWidth;
+        RwInt32                     originalHeight;
+        RwInt32                     originalStride;
+        void*                       texture_ptr;
+    };
+    typedef struct RwLLLink RwLLLink;
+    struct RwLLLink {
+        void *next;
+        void *prev;
+    };
+    typedef struct RwLinkList RwLinkList;
+    struct RwLinkList {
+        struct RwLLLink link;
+    };
+    typedef struct RwObject RwObject;
+    struct RwObject {
+        char type;
+        char subType;
+        char flags;
+        char privateFlags;
+        struct RwFrame *parent;
+    };
+    typedef struct RwTexDictionary RwTexDictionary;
+    struct RwTexDictionary {
+        struct RwObject object;
+        struct RwLinkList texturesInDict;
+        struct RwLLLink lInInstance;
+    };
+    typedef struct CBaseModelInfo_vtbl CBaseModelInfo_vtbl;
+    struct CBaseModelInfo_vtbl {
+        void* destructor;
+        void* AsAtomicModelInfoPtr;
+        void* AsDamageAtomicModelInfoPtr;
+        void* AsLodAtomicModelInfoPtr;
+        char(__thiscall* GetModelType)(struct CBaseModelInfo*);
+    };
+    typedef struct CBaseModelInfo CBaseModelInfo;
+    struct CBaseModelInfo {
+        CBaseModelInfo_vtbl* vtbl;
+        unsigned int m_dwKey;
+        short m_wUsageCount;
+        short m_wTxdIndex;
+        struct CColModel* m_pColModel;
+        float m_fDrawDistance;
+        struct RpClump* m_pRwObject;
+    };
+    typedef struct TxdDef TxdDef;
+    struct TxdDef {
+        RwTexDictionary *m_pRwDictionary;
+        unsigned short m_wRefsCount;
+        short m_wParentIndex;
+        unsigned int m_hash;
+    };
+    typedef struct CPool CPool;
+    struct CPool {
+        TxdDef* m_pObjects;
+        uint8_t* m_byteMap;
+        int m_nSize;
+        int top;
+        char m_bOwnsAllocations;
+        char bLocked;
+        short _pad;
+    };
+    typedef struct RwTexture RwTexture;
+    struct RwTexture {
+        RwRaster* raster;
+    };
+    typedef struct CSprite2d CSprite2d;
+    struct CSprite2d {
+        RwTexture* m_pTexture;
+    };
+    typedef struct CWeaponInfo CWeaponInfo;
+    struct CWeaponInfo {
+        int m_eFireType;
+        float targetRange;
+        float m_fWeaponRange;
+        int dwModelId1;
+        int dwModelId2;
+        int nSlot;
+        int m_nFlags;
+        int AssocGroupId;
+        short ammoClip;
+        short damage;
+        float* fireOffset;
+        int skillLevel;
+        int reqStatLevelToGetThisWeaponSkilLevel;
+        float m_fAccuracy;
+        float moveSpeed;
+        float animLoopStart;
+        float animLoopEnd;
+        int animLoopFire;
+        int animLoop2Start;
+        int animLoop2End;
+        int animLoop2Fire;
+        float breakoutTime;
+        float speed;
+        int radius;
+        float lifespan;
+        float spread;
+        char AssocGroupId2;
+        char field_6D;
+        char baseCombo;
+        char m_nNumCombos;
+    };
 ]]
+
+local CWeaponInfo__GetWeaponInfo = ffi.cast("CWeaponInfo*(__cdecl*)(uint8_t, uint8_t)", 0x743C60)
+local CKeyGen__AppendStringToKey = ffi.cast("unsigned int(__cdecl*)(unsigned int, char*)", 0x53CF70)
+local RwTexDictionaryFindHashNamedTexture = ffi.cast("RwTexture*(__cdecl*)(RwTexDictionary*, unsigned int)", 0x734E50)
+
+local function checkForUpdates()
+    if settings.updateInProgress then
+        formattedAddChatMessage(string.format("You have successfully upgraded from Version: %s to %s", settings.lastVersion, scriptVersion), -1)
+        displayChangelog()
+        settings.updateInProgress = false
+
+        saveConfigWithErrorHandling(getFile("settings"), settings)
+    else
+        if settings.checkForUpdates then 
+            checkForUpdate() 
+        end
+    end
+end
 
 -- HUD Initialization
 local function initializeHud()
@@ -333,21 +496,18 @@ end
 local function createUpdateThread()
     if not hudUpdateThread or coroutine.status(hudUpdateThread) == "dead" then
         hudUpdateThread = coroutine.create(function()
-            local fpsUpdateTime = os.clock() + 1 -- Initialize the next FPS update time
+            local fpsUpdateTime = os.clock() + 1
             while true do wait(5)
                 updateSprintStatus()
                 hudValues()
                 changeRadarPosAndSize(hud.radar.pos[1], hud.radar.pos[2], hud.radar.size[1], hud.radar.size[2])
                 changeRadarColor(hud.radar.color)
-
-                -- Update FPS every second
                 if os.clock() >= fpsUpdateTime then
                     fps = fps_counter
                     fps_counter = 0
-                    fpsUpdateTime = os.clock() + 1 -- Set the next FPS update time
+                    fpsUpdateTime = os.clock() + 1
                 end
-
-                coroutine.yield() -- Yield to allow resumption
+                coroutine.yield()
             end
         end)
     end
@@ -365,26 +525,21 @@ end
 
 -- OnInitialize
 function main()
-    for _, dir in ipairs({configDir, resourceDir, cfgPath, cfgFolder, resourcePath, iconsPath}) do 
-        createDirectory(dir) 
+    local paths = getPath(nil)
+    for _, dir in pairs({"config", "settings", "configs", "resource", "resources", "icons"}) do
+        createDirectory(paths[dir])
     end
 
-    settings = handleConfigFile(settingsFile, settings_defaultSettings, settings)
-    hud = handleConfigFile(cfgFolder .. settings.JsonFile, hud_defaultSettings, hud, {"pos", "serverhp"})
+    -- Load Configs
+    settings = handleConfigFile(getFile("settings"), settings_defaultSettings, settings)
+    hud = handleConfigFile(getPath("configs") .. settings.JsonFile, hud_defaultSettings, hud, {"pos", "serverhp"})
 
     repeat wait(0) until isSampAvailable()
 
-    if settings.updateInProgress then
-        formattedAddChatMessage(string.format("You have successfully upgraded from Version: %s to %s", settings.lastVersion, scriptVersion), -1)
-        settings.updateInProgress = false
+    -- Check for updates 
+    checkForUpdates()
 
-        saveConfigWithErrorHandling(settingsFile, settings)
-    else
-        if settings.checkForUpdates then 
-            checkForUpdate() 
-        end
-    end
-
+    -- Register Chat Commands
     sampRegisterChatCommand("hud", function()
         if settings.updateInProgress then
             formattedAddChatMessage("Update in progress. Please wait a moment.", -1)
@@ -393,23 +548,18 @@ function main()
         menu.settings[0] = not menu.settings[0]
     end)
 
-    sampRegisterChatCommand("hud.changelog", function()
-        displayChangelog()
-    end)
-
-    local files = {}
-    for i = 0, 48 do
-        if i < 19 or i > 21 then
-            table.insert(files, {url = urls.icons .. i .. ".png", path = iconsPath .. i .. ".png", replace = false})
+    -- Download Icons and Initialize HUD
+    downloadFiles(generateIconUrls(), function(result)
+        if result then 
+            formattedAddChatMessage("All files downloaded successfully!", -1) 
         end
-    end
-
-    downloadFiles(files, function(result)
-        if result then formattedAddChatMessage("All files downloaded successfully!", -1) end
         initializeHud()
     end)
 
+    -- Create Update Thread
     createUpdateThread()
+
+    -- Resume Update Thread
     while true do wait(0)
         resumeUpdateThread()
     end
@@ -671,7 +821,7 @@ end
 local hzhpbartext = {'','',''}
 local function handleHPBarTextDraw(id, data)
     local posX, posY = math.floor(data.position.x), math.floor(data.position.y)
-    if posX == 610 and posY == 68 then
+    if posX == 546 and posY == 66 then
         if hud.hzgsettings.hpbar.toggle[1] then
             if hzhpbartext[1] ~= '' then
                 data.text = hzhpbartext[1]
@@ -685,7 +835,7 @@ local function handleHPBarTextDraw(id, data)
             sampTextdrawSetBoxColorAndSize(id, 1, hud.hzgsettings.hpbar.color1, 543.75, 0)
         end)
         return true, {id, data}
-    elseif posX == 608 and posY == 70 then
+    elseif posX == 548 and posY == 68 then
         if hud.hzgsettings.hpbar.toggle[1] then
             if hzhpbartext[2] ~= '' then
                 data.text = hzhpbartext[2]
@@ -699,7 +849,7 @@ local function handleHPBarTextDraw(id, data)
             sampTextdrawSetBoxColorAndSize(id, 1, hud.hzgsettings.hpbar.color2, 545.75, 0)
         end)
         return true, {id, data}
-    elseif posX <= 608 and posY == 70 then
+    elseif posX <= 548 and posY == 68 then
         if hud.hzgsettings.hpbar.toggle[1] then
             if hzhpbartext[3] ~= '' then
                 data.text = hzhpbartext[3]
@@ -716,6 +866,12 @@ local function handleHPBarTextDraw(id, data)
     end
     return false, data
 end
+
+--[[
+hud: 546   66.699996948242   LD_SPAC:white   0
+hud: 548   68.800003051758   LD_SPAC:white   1
+hud: 548   68.800003051758   LD_SPAC:white   2051
+]]
 
 local function handleHPAndArmorTextDraw(id, data)
     local posX, posY = data.position.x, data.position.y
@@ -792,11 +948,10 @@ end
 function onScriptTerminate(scr, quitGame)
 	if scr == script.this then
 		setRadarCompass(false)
-		showCursor(false)
 		if settings.autosave then
-            saveConfigWithErrorHandling(cfgFolder .. settings.JsonFile, hud)
+            saveConfigWithErrorHandling(getPath("configs") .. settings.JsonFile, hud)
         end
-        saveConfigWithErrorHandling(settingsFile, settings)
+        saveConfigWithErrorHandling(getFile("settings"), settings)
 	end
 end
 
@@ -815,12 +970,12 @@ end)
 -- Settings Menu
 imgui.OnFrame(function() return menu.settings[0] end,
 function()
-    scanGameFolder(cfgFolder, configsDir)
+    scanGameFolder(getPath("configs"), configsDir)
 end,
 function()
     local io = imgui.GetIO()
     local center = imgui.ImVec2(io.DisplaySize.x / 2, io.DisplaySize.y / 2)
-    local title = string.format("%s %s Settings - Version: %s", fa.GEAR, firstToUpper(scriptName), scriptVersion)
+    local title = string.format("%s %s Settings - v%s", fa.GEAR, firstToUpper(scriptName), scriptVersion)
     imgui.SetNextWindowPos(center, imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
     imgui.Begin(title, menu.settings, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize)
 
@@ -853,12 +1008,12 @@ function()
             end
             if imgui.IsItemHovered() then imgui.SetTooltip(tooltip) end
         end
-        toggleButton(fa.POWER_OFF, 5, hud.toggle, 'Toggle Interface '.. (not hud.toggle and 'ON' or 'OFF'), function() hud.toggle = not hud.toggle end)
+        toggleButton(fa.POWER_OFF, 5, hud.toggle, string.format('Toggle %s %s', firstToUpper(scriptName), hud.toggle and 'OFF' or 'ON'), function() hud.toggle = not hud.toggle end)
         toggleButton(fa.FLOPPY_DISK, 81, false, 'Save configuration', function()
-            saveConfigWithErrorHandling(cfgFolder .. settings.JsonFile, hud)
+            saveConfigWithErrorHandling(getPath("configs") .. settings.JsonFile, hud)
         end)
         toggleButton(fa.REPEAT, 157, false, 'Reload configuration', function()
-            hud = handleConfigFile(cfgFolder .. settings.JsonFile, hud_defaultSettings, hud)
+            hud = handleConfigFile(getPath("configs") .. settings.JsonFile, hud_defaultSettings, hud)
             initializeHud()
         end)
         toggleButton(fa.ERASER, 233, false, 'Load default configuration', function()
@@ -1367,8 +1522,8 @@ imgui.OnFrame(function() return menu.confirm[0] end, function()
                     t.useCurrent = not t.useCurrent
                 end
                 handleButton(fa.CIRCLE_CHECK .. ' Confirm', function()
-                    saveConfigWithErrorHandling(cfgFolder .. t.name, t.useCurrent and hud or hud_defaultSettings)
-                    scanGameFolder(cfgFolder, configsDir)
+                    saveConfigWithErrorHandling(getPath("configs") .. t.name, t.useCurrent and hud or hud_defaultSettings)
+                    scanGameFolder(getPath("configs"), configsDir)
 
                     t.status = false
                     t.useCurrent = false
@@ -1383,7 +1538,7 @@ imgui.OnFrame(function() return menu.confirm[0] end, function()
                 imgui.Text('File: "' .. t.name .. '"')
                 handleButton(fa.CIRCLE_CHECK .. ' Confirm', function()
                     settings.JsonFile = t.name
-                    hud = handleConfigFile(cfgFolder .. settings.JsonFile, hud_defaultSettings, hud)
+                    hud = handleConfigFile(getPath("configs") .. settings.JsonFile, hud_defaultSettings, hud)
                     initializeHud()
 
                     t.status = false
@@ -1401,8 +1556,8 @@ imgui.OnFrame(function() return menu.confirm[0] end, function()
                     t.selectedFile = selectedFile
                 end)
                 handleButton(fa.CIRCLE_CHECK .. ' Confirm', function()
-                    saveConfigWithErrorHandling(cfgFolder .. t.selectedFile, hud)
-                    scanGameFolder(cfgFolder, configsDir)
+                    saveConfigWithErrorHandling(getPath("configs") .. t.selectedFile, hud)
+                    scanGameFolder(getPath("configs"), configsDir)
 
                     t.status = false
                     t.selectedFile = nil
@@ -1425,9 +1580,9 @@ imgui.OnFrame(function() return menu.confirm[0] end, function()
                     imgui.SetTooltip('Do not add ".json" to the end.')
                 end
                 handleButton(fa.CIRCLE_CHECK .. ' Confirm', function()
-                    os.rename(cfgFolder .. settings.JsonFile, cfgFolder .. t.name)
+                    os.rename(getPath("configs") .. settings.JsonFile, getPath("configs") .. t.name)
                     settings.JsonFile = t.name
-                    scanGameFolder(cfgFolder, configsDir)
+                    scanGameFolder(getPath("configs"), configsDir)
                     t.status = false
                     t.name = ''
                 end)
@@ -1440,11 +1595,11 @@ imgui.OnFrame(function() return menu.confirm[0] end, function()
                 imgui.Text('Do you want to delete this file?')
                 imgui.Text('File: "' .. settings.JsonFile .. '"')
                 handleButton(fa.CIRCLE_CHECK .. ' Confirm', function()
-                    os.remove(cfgFolder .. settings.JsonFile)
+                    os.remove(getPath("configs") .. settings.JsonFile)
                     settings.JsonFile = settings_defaultSettings.JsonFile
-                    hud = handleConfigFile(cfgFolder .. settings.JsonFile, hud_defaultSettings, hud)
+                    hud = handleConfigFile(getPath("configs") .. settings.JsonFile, hud_defaultSettings, hud)
                     initializeHud()
-                    scanGameFolder(cfgFolder, configsDir)
+                    scanGameFolder(getPath("configs"), configsDir)
 
                     t.status = false
                 end)
@@ -1571,7 +1726,18 @@ function renderFont(x, y, fontid, value, align, color)
 end
 
 function renderWeap(x, y, sizex, sizey, value, color, color2)
-    if hud.tog[6][4] then renderDrawTexture(assets.weapTextures[47], x, y, sizex, sizey, 0, color2) end
+    --[[local success, texture = pcall(getWeaponIconTexture, value)
+    if success and texture then
+        --renderDrawTexture(texture, x, y, sizex, sizey, 0, color)
+        print(texture)
+        print(assets.weapTextures[value])
+    else
+        print("Error getting weapon icon texture for weapon ID: " .. value)
+    end]]
+
+    if hud.tog[6][4] then 
+        renderDrawTexture(assets.weapTextures[47], x, y, sizex, sizey, 0, color2)
+    end
     renderDrawTexture(assets.weapTextures[value], x, y, sizex, sizey, 0, color)
 end
 
@@ -1595,7 +1761,7 @@ end
 function loadTextures()
     assets.weapTextures = assets.weapTextures or {}
     for i = 0, 48 do
-        local filepath = iconsPath .. i .. '.png'
+        local filepath = string.format("%s%d.png", getPath("icons"), i)
         if doesFileExist(filepath) and not assets.weapTextures[i] then
             assets.weapTextures[i] = renderLoadTextureFromFile(filepath)
         end
@@ -1632,12 +1798,37 @@ local function formatedAmmo(ammo, clip)
     return string.format("%s", hud.tog[6][5] and (string.format("%d-%d", ammo - clip, clip)) or clip)
 end
 
+local function formatedFps(fps)
+    return string.format("%s%d", hud.tog[8][5][2] and 'FPS: ' or '', fps)
+end
+
+local function formatedPing(ping)
+    return string.format("%s%d", hud.tog[8][4][2] and 'Ping: ' or '', ping)
+end
+
+local function formatedLocalTime()
+    return os.date(hud.tog[8][2][2] and '%I:%M:%S' or '%H:%M:%S')
+end
+
+local function formatedZone(handle)
+    local zoneName, subZoneName = getPlayerZoneName(handle)
+    return subZoneName and string.format("%s (%s)", zoneName, subZoneName) or zoneName
+end
+
+local function formatedTurf()
+    return getActiveInterior() == 0 and getGxtText("turfText") or nil
+end
+
+local function formatedNickName(id)
+    return string.format("%s (%d)", sampGetPlayerNickname(id), id)
+end
+
 local function updateValue(table, index, newValue)
     if table[index] ~= newValue or (newValue == nil and table[index] ~= nil) then
         table[index] = newValue
-        return true  -- Indicate that the value was updated
+        return true
     end
-    return false  -- Indicate that the value didn't change
+    return false
 end
 
 local function updateVehicleInfo(id)
@@ -1703,17 +1894,6 @@ end
 
 local function updatePlayerInfo(id, handle, isSpec)
     local hp = sampGetPlayerHealth(id)
-    local weap = getCurrentCharWeapon(handle)
-    local nickName = string.format("%s (%d)", sampGetPlayerNickname(id), id)
-    local localTime = os.date(hud.tog[8][2][2] and '%I:%M:%S' or '%H:%M:%S')
-    local serverTime = getGxtText("wwText")
-    local ping = string.format("%s%d", hud.tog[8][4][2] and 'Ping: ' or '', sampGetPlayerPing(id))
-    local fps = string.format("%s%d", hud.tog[8][5][2] and 'FPS: ' or '', fps)
-    local angle = getDirection(isSpec and getCharHeading(handle) or hud.tog[8][6][2] and getCameraZAngle() or getCharHeading(handle))
-    local zoneName, subZoneName = getPlayerZoneName(handle)
-    local zone = subZoneName and string.format("%s (%s)", zoneName, subZoneName) or zoneName
-    local turf = getActiveInterior() == 0 and getGxtText("turfText") or nil
-    
     if not isSpec then
         for _, v in pairs(hud.serverhp) do
             if hp >= v then
@@ -1734,6 +1914,7 @@ local function updatePlayerInfo(id, handle, isSpec)
         updated = updateValue(breathValues, 1, getWaterLevel()) or updated
     end
 
+    local weap = getCurrentCharWeapon(handle)
     updated = updateValue(weaponValues, 1, weap) or updated
     updated = updateValue(weaponValues, 2, formatedAmmo(getAmmoInCharWeapon(handle, weap), getAmmoInClip(handle, weap))) or updated
     updated = updateValue(weaponValues, 3, weapons.get_name(weap)) or updated
@@ -1746,19 +1927,20 @@ local function updatePlayerInfo(id, handle, isSpec)
         updated = updateValue(moneyWantedValues, 2, formatedMoney(getPlayerMoney())) or updated
     end
     
-    updated = updateValue(miscValues, 1, nickName) or updated
-    updated = updateValue(miscValues, 2, localTime) or updated
-    updated = updateValue(miscValues, 3, serverTime) or updated
-    updated = updateValue(miscValues, 4, ping) or updated
-    updated = updateValue(miscValues, 5, fps) or updated
+    local angle = getDirection(isSpec and getCharHeading(handle) or hud.tog[8][6][2] and getCameraZAngle() or getCharHeading(handle))
+    updated = updateValue(miscValues, 1, formatedNickName(id)) or updated
+    updated = updateValue(miscValues, 2, formatedLocalTime()) or updated
+    updated = updateValue(miscValues, 3, getGxtText("wwText")) or updated
+    updated = updateValue(miscValues, 4, formatedPing(sampGetPlayerPing(id))) or updated
+    updated = updateValue(miscValues, 5, formatedFps(fps)) or updated
     updated = updateValue(miscValues, 6, angle) or updated
-    updated = updateValue(miscValues, 7, zone) or updated
-    updated = updateValue(miscValues, 8, turf) or updated
+    updated = updateValue(miscValues, 7, formatedZone(handle)) or updated
+    updated = updateValue(miscValues, 8, formatedTurf()) or updated
 
     return updated
 end
 
-local function updateDemoValues()
+local function updateDemoValues(id)
     local demoValues = {
         healthValues = {50},
         armorValues = {50},
@@ -1767,7 +1949,19 @@ local function updateDemoValues()
         breathValues = {100},
         weaponValues = {24, formatedAmmo(50000, 7), 'Desert Eagle'},
         moneyWantedValues = {6, formatedMoney(1000000)},
-        miscValues = {'Player_Name', 'Local-Time', 'Server-Time', 'Ping', (hud.tog[8][5][2] and 'FPS: ' or '') .. fps, 'Direction', 'Location', 'Turf', 'Vehicle Speed', 'Vehicle Name', 'Badge'}
+        miscValues = {
+            'Player_Name', 
+            'Local-Time', 
+            'Server-Time', 
+            formatedPing(sampGetPlayerPing(id)), 
+            formatedFps(fps), 
+            'Direction', 
+            'Location', 
+            'Turf', 
+            'Vehicle Speed', 
+            'Vehicle Name', 
+            'Badge'
+        }
     }
     local updated = false
     for tableName, values in pairs(demoValues) do
@@ -1802,7 +1996,7 @@ function hudValues()
     end
 
     if menu.settings[0] then
-        return updateDemoValues()
+        return updateDemoValues(id)
     end
 
     local updated = false
@@ -1888,6 +2082,7 @@ function hudMove()
         local posY = hud.pos[hud.groups[i][v]] ~= nil and hud.pos[hud.groups[i][v]].y or hud.pos[1].y
 
         if x >= posX + offsetX - align and x <= posX + offsetX - align + width and y >= posY + offsetY and y <= posY + offsetY + height then
+            print(x, posX + offsetX - align, posX + offsetX - align + width, y, posY + offsetY, posY + offsetY + height)
             if isKeyJustPressed(VK_LBUTTON) and not inuse then
                 inuse = true
                 select = true
@@ -1905,6 +2100,10 @@ function hudMove()
             end
         end
         return select
+    end
+    
+    local function getValueByIndex(i)
+        return valueTables[i][1]
     end
 
     if move then
@@ -1925,21 +2124,9 @@ function hudMove()
         for i = 1, 8 do
             if not selected[i] then selected[i] = {} end
             if i >= 1 and i <= 5 then
-                local value
-                if i == 1 then
-                    value = healthValues[i]
-                elseif i == 2 then
-                    value = armorValues[i]
-                elseif i == 3 then
-                    value = sprintValues[i]
-                elseif i == 4 then
-                    value = vehicleValues[i]
-                elseif i == 5 then
-                    value = breathValues[i]
-                end
-                local width_text = renderGetFontDrawTextLength(assets.fontId[i][1], value or "")
+                local width_text = renderGetFontDrawTextLength(assets.fontId[i][1], valueTables[i][1] or "")
                 local height_text = renderGetFontDrawHeight(assets.fontId[i][1])
-                selected[i][2] = handleHudElement(i, 2, width_text, height_text, hud.offx[i][2], hud.offy[i][2], alignText(assets.fontId[i][1], value or "", hud.alignfont[i][1]), selected[i][2])
+                selected[i][2] = handleHudElement(i, 2, width_text, height_text, hud.offx[i][2], hud.offy[i][2], alignText(assets.fontId[i][1], valueTables[i][1] or "", hud.alignfont[i][1]), selected[i][2])
                 selected[i][1] = handleHudElement(i, 1, hud.sizex[i], hud.sizey[i], hud.offx[i][1] + hud.border[i], hud.offy[i][1] + hud.border[i], 0, selected[i][1])
             elseif i == 6 then
                 local width_clip = renderGetFontDrawTextLength(assets.fontId[i][1], weaponValues[2] or "")
@@ -2076,10 +2263,14 @@ local function freeAllocatedPointers()
 end
 
 function changeRadarPosAndSize(posX, posY, sizeX, sizeY)
-    if (posX == radarConfig.posX) and (posY == radarConfig.posY) and (sizeX == radarConfig.sizeX) and (sizeY == radarConfig.sizeY) then
+    if getMoonloaderVersion() <= 26 then
         return
     end
 
+    if (posX == radarConfig.posX) and (posY == radarConfig.posY) and (sizeX == radarConfig.sizeX) and (sizeY == radarConfig.sizeY) then
+        return
+    end
+    
     freeAllocatedPointers()
 
     local addresses = {
@@ -2134,6 +2325,32 @@ function setRadarCompass(bool)
 end
 
 -- Value Functions
+function getWeaponIconTexture(nWeaponModelId)
+    local pTexture = ffi.new("RwTexDictionary*");
+    local pModelInfo = ffi.new("CBaseModelInfo*");
+    local pWeaponInfo = CWeaponInfo__GetWeaponInfo(nWeaponModelId, 1);
+    if (pWeaponInfo.dwModelId1 > 0) then
+        pModelInfo = ffi.cast("CBaseModelInfo**", 0xA9B0C8)[pWeaponInfo.dwModelId1];
+        local nTxdIndex = pModelInfo.m_wTxdIndex;
+        local pTxdPool = ffi.cast("CPool**", 0xC8800C)[0];
+        if ffi.cast("uint8_t", pTxdPool.m_byteMap + nTxdIndex) >= 0 then
+            pTexture = pTxdPool.m_pObjects[nTxdIndex].m_pRwDictionary;
+        end
+        if pTexture ~= nil then
+            local nAppended = CKeyGen__AppendStringToKey(pModelInfo.m_dwKey, ffi.cast("char*", "ICON"));
+            local texture = RwTexDictionaryFindHashNamedTexture(pTexture, nAppended);
+            if texture ~= nil then
+                return texture.raster.texture_ptr
+            else
+            end
+        end
+    else
+        local fistSprite = ffi.cast("CSprite2d*", 0xBAB1FC)[0];
+        return fistSprite.m_pTexture.raster.texture_ptr
+    end
+    return nil;
+end
+
 function updateSprintStatus()
     local currentTime = os.clock()
     if isButtonPressed(h, gkeys.player.SPRINT) then
@@ -2168,7 +2385,7 @@ function getVehicleName(modelId)
     return getGxtText(getNameOfVehicleModel(modelId))
 end
 
-function getZoneName(x, y , z)
+function getZoneName(x, y, z)
 	return getGxtText(getNameOfZone(x, y, z))
 end
 
@@ -2227,12 +2444,26 @@ function findPlayer(target)
     return nil
 end
 
+-- Generate Icon Urls
+function generateIconUrls()
+    local files = {}
+    for i = 0, 48 do
+        if i < 19 or i > 21 then
+            table.insert(files, {
+                url = string.format("%s%d.png", fetchUrls("icons"), i),
+                path = string.format("%s%d.png", getPath("icons"), i),
+                replace = false
+            })
+        end
+    end
+    return files
+end
+
 -- Update Functions
 function checkForUpdate()
-    local url = settings.beta and urls.updateBeta or urls.update
-    downloadFiles({{url = url, path = updateFile, replace = true}}, function(result)
+    downloadFiles({{url = fetchUrls("update", settings.beta), path = getFile("update"), replace = true}}, function(result)
         if result then
-            local file = io.open(updateFile, "r")
+            local file = io.open(getFile("update"), "r")
             if file then
                 local content = file:read("*a")
                 file:close()
@@ -2249,7 +2480,7 @@ end
 function updateScript()
     settings.updateInProgress = true
     settings.lastVersion = scriptVersion
-    downloadFiles({{url = settings.beta and urls.scriptBeta or urls.script, path = scriptPath, replace = true}}, function(result)
+    downloadFiles({{url = fetchUrls("script", settings.beta), path = scriptPath, replace = true}}, function(result)
         if result then
             formattedAddChatMessage("Update downloaded successfully! Reloading the script now.", -1)
             thisScript():reload()
@@ -2495,7 +2726,7 @@ function formatNumber(n)
 end
 
 function firstToUpper(string)
-    return (string:gsub("^%l", string.upper))
+    return string:gsub("^%l", string.upper)
 end
 
 function formattedAddChatMessage(string, color)
