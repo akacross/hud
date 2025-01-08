@@ -1,10 +1,16 @@
 script_name("hud")
 script_description("Customizable HUD")
-script_version("1.4.34")
+script_version("1.4.36")
 script_author("akacross")
 script_url("https://akacross.net/")
 
 local changelog = {
+    ["1.4.36"] = {
+        "Zhao decided to move the HP Bar location, fixed the removal of the HP Bar",
+    },
+    ["1.4.35"] = {
+        "Fixed issue where you could not move any text elements, ids 1 through 5 were using the wrong index for the value table",
+    },
     ["1.4.34"] = {
         "Added changelog functionality to show the latest changes in the script and show the changelog after an update is finished",
         "Rewritten the dependency manager to improve module loading and error handling",
@@ -242,6 +248,15 @@ local breathValues = {nil}
 local moneyWantedValues = {nil, nil}
 local miscValues = {nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil}
 
+-- Value Tables
+local valueTables = {
+    healthValues,
+    armorValues,
+    sprintValues,
+    vehicleValues,
+    breathValues
+}
+
 -- Radar Configuration
 local radarConfig = {
     posX = nil, posY = nil,
@@ -293,8 +308,7 @@ local allocatedPointers = {}
 local subZones = {
     GAN1 = 'Grove Street', GAN2 = "Apartments", IWD1 = 'Freeway', IWD2 = 'Drug Den', IWD3A = 'Gas Station', IWD3B = 'Maximus Club',
     IWD4 = 'Ghetto Area', IWD5 = 'Pizza', LMEX1A = "South", LMEX1B = "North", ELS1A = "Crack Lab", ELS1B = "Pig Pen", ELS2 = "Apartments", 
-    ELS3A = "The Court", ELS3C = "Alleyway", ELS4 = "Carwash", ELCO1 = "Unity Station", ELCO2 = "Apartments", ELCO1 = "Unity Station", 
-    ELCO2 = "Apartments", UNITY = "Traintracks", LIND1A = "West", LIND2B = "South", LIND1A = "North", LIND2A = "South", LIND3 = "East"
+    ELS3A = "The Court", ELS3C = "Alleyway", ELS4 = "Carwash", ELCO1 = "Unity Station", ELCO2 = "Apartments", LIND1A = "West", LIND2A = "South", LIND2B = "South", LIND3 = "East"
 }
 
 local customZones = {
@@ -327,12 +341,131 @@ local spectateData = {
 	state = false
 }
 
--- FFI Configuration
+-- FFI Definitions
 ffi.cdef[[
     typedef unsigned long DWORD;
     void* malloc(size_t size);
     void free(void* ptr);
+
+    typedef unsigned char RwUInt8;
+    typedef int RwInt32;
+    typedef struct RwRaster RwRaster;
+    struct RwRaster {
+        struct RwRaster*            parent;
+        RwUInt8*                    cpPixels;
+        RwUInt8*                    palette;
+        RwInt32                     width, height, depth;
+        RwInt32                     stride;
+        RwUInt8*                    originalPixels;
+        RwInt32                     originalWidth;
+        RwInt32                     originalHeight;
+        RwInt32                     originalStride;
+        void*                       texture_ptr;
+    };
+    typedef struct RwLLLink RwLLLink;
+    struct RwLLLink {
+        void *next;
+        void *prev;
+    };
+    typedef struct RwLinkList RwLinkList;
+    struct RwLinkList {
+        struct RwLLLink link;
+    };
+    typedef struct RwObject RwObject;
+    struct RwObject {
+        char type;
+        char subType;
+        char flags;
+        char privateFlags;
+        struct RwFrame *parent;
+    };
+    typedef struct RwTexDictionary RwTexDictionary;
+    struct RwTexDictionary {
+        struct RwObject object;
+        struct RwLinkList texturesInDict;
+        struct RwLLLink lInInstance;
+    };
+    typedef struct CBaseModelInfo_vtbl CBaseModelInfo_vtbl;
+    struct CBaseModelInfo_vtbl {
+        void* destructor;
+        void* AsAtomicModelInfoPtr;
+        void* AsDamageAtomicModelInfoPtr;
+        void* AsLodAtomicModelInfoPtr;
+        char(__thiscall* GetModelType)(struct CBaseModelInfo*);
+    };
+    typedef struct CBaseModelInfo CBaseModelInfo;
+    struct CBaseModelInfo {
+        CBaseModelInfo_vtbl* vtbl;
+        unsigned int m_dwKey;
+        short m_wUsageCount;
+        short m_wTxdIndex;
+        struct CColModel* m_pColModel;
+        float m_fDrawDistance;
+        struct RpClump* m_pRwObject;
+    };
+    typedef struct TxdDef TxdDef;
+    struct TxdDef {
+        RwTexDictionary *m_pRwDictionary;
+        unsigned short m_wRefsCount;
+        short m_wParentIndex;
+        unsigned int m_hash;
+    };
+    typedef struct CPool CPool;
+    struct CPool {
+        TxdDef* m_pObjects;
+        uint8_t* m_byteMap;
+        int m_nSize;
+        int top;
+        char m_bOwnsAllocations;
+        char bLocked;
+        short _pad;
+    };
+    typedef struct RwTexture RwTexture;
+    struct RwTexture {
+        RwRaster* raster;
+    };
+    typedef struct CSprite2d CSprite2d;
+    struct CSprite2d {
+        RwTexture* m_pTexture;
+    };
+    typedef struct CWeaponInfo CWeaponInfo;
+    struct CWeaponInfo {
+        int m_eFireType;
+        float targetRange;
+        float m_fWeaponRange;
+        int dwModelId1;
+        int dwModelId2;
+        int nSlot;
+        int m_nFlags;
+        int AssocGroupId;
+        short ammoClip;
+        short damage;
+        float* fireOffset;
+        int skillLevel;
+        int reqStatLevelToGetThisWeaponSkilLevel;
+        float m_fAccuracy;
+        float moveSpeed;
+        float animLoopStart;
+        float animLoopEnd;
+        int animLoopFire;
+        int animLoop2Start;
+        int animLoop2End;
+        int animLoop2Fire;
+        float breakoutTime;
+        float speed;
+        int radius;
+        float lifespan;
+        float spread;
+        char AssocGroupId2;
+        char field_6D;
+        char baseCombo;
+        char m_nNumCombos;
+    };
 ]]
+
+local CWeaponInfo__GetWeaponInfo = ffi.cast("CWeaponInfo*(__cdecl*)(uint8_t, uint8_t)", 0x743C60)
+local CKeyGen__AppendStringToKey = ffi.cast("unsigned int(__cdecl*)(unsigned int, char*)", 0x53CF70)
+local RwTexDictionaryFindHashNamedTexture = ffi.cast("RwTexture*(__cdecl*)(RwTexDictionary*, unsigned int)", 0x734E50)
 
 local function checkForUpdates()
     if settings.updateInProgress then
@@ -688,7 +821,7 @@ end
 local hzhpbartext = {'','',''}
 local function handleHPBarTextDraw(id, data)
     local posX, posY = math.floor(data.position.x), math.floor(data.position.y)
-    if posX == 610 and posY == 68 then
+    if posX == 546 and posY == 66 then
         if hud.hzgsettings.hpbar.toggle[1] then
             if hzhpbartext[1] ~= '' then
                 data.text = hzhpbartext[1]
@@ -702,7 +835,7 @@ local function handleHPBarTextDraw(id, data)
             sampTextdrawSetBoxColorAndSize(id, 1, hud.hzgsettings.hpbar.color1, 543.75, 0)
         end)
         return true, {id, data}
-    elseif posX == 608 and posY == 70 then
+    elseif posX == 548 and posY == 68 then
         if hud.hzgsettings.hpbar.toggle[1] then
             if hzhpbartext[2] ~= '' then
                 data.text = hzhpbartext[2]
@@ -716,7 +849,7 @@ local function handleHPBarTextDraw(id, data)
             sampTextdrawSetBoxColorAndSize(id, 1, hud.hzgsettings.hpbar.color2, 545.75, 0)
         end)
         return true, {id, data}
-    elseif posX <= 608 and posY == 70 then
+    elseif posX <= 548 and posY == 68 then
         if hud.hzgsettings.hpbar.toggle[1] then
             if hzhpbartext[3] ~= '' then
                 data.text = hzhpbartext[3]
@@ -733,6 +866,12 @@ local function handleHPBarTextDraw(id, data)
     end
     return false, data
 end
+
+--[[
+hud: 546   66.699996948242   LD_SPAC:white   0
+hud: 548   68.800003051758   LD_SPAC:white   1
+hud: 548   68.800003051758   LD_SPAC:white   2051
+]]
 
 local function handleHPAndArmorTextDraw(id, data)
     local posX, posY = data.position.x, data.position.y
@@ -809,7 +948,6 @@ end
 function onScriptTerminate(scr, quitGame)
 	if scr == script.this then
 		setRadarCompass(false)
-		showCursor(false)
 		if settings.autosave then
             saveConfigWithErrorHandling(getPath("configs") .. settings.JsonFile, hud)
         end
@@ -1588,7 +1726,18 @@ function renderFont(x, y, fontid, value, align, color)
 end
 
 function renderWeap(x, y, sizex, sizey, value, color, color2)
-    if hud.tog[6][4] then renderDrawTexture(assets.weapTextures[47], x, y, sizex, sizey, 0, color2) end
+    --[[local success, texture = pcall(getWeaponIconTexture, value)
+    if success and texture then
+        --renderDrawTexture(texture, x, y, sizex, sizey, 0, color)
+        print(texture)
+        print(assets.weapTextures[value])
+    else
+        print("Error getting weapon icon texture for weapon ID: " .. value)
+    end]]
+
+    if hud.tog[6][4] then 
+        renderDrawTexture(assets.weapTextures[47], x, y, sizex, sizey, 0, color2)
+    end
     renderDrawTexture(assets.weapTextures[value], x, y, sizex, sizey, 0, color)
 end
 
@@ -1933,6 +2082,7 @@ function hudMove()
         local posY = hud.pos[hud.groups[i][v]] ~= nil and hud.pos[hud.groups[i][v]].y or hud.pos[1].y
 
         if x >= posX + offsetX - align and x <= posX + offsetX - align + width and y >= posY + offsetY and y <= posY + offsetY + height then
+            print(x, posX + offsetX - align, posX + offsetX - align + width, y, posY + offsetY, posY + offsetY + height)
             if isKeyJustPressed(VK_LBUTTON) and not inuse then
                 inuse = true
                 select = true
@@ -1950,6 +2100,10 @@ function hudMove()
             end
         end
         return select
+    end
+    
+    local function getValueByIndex(i)
+        return valueTables[i][1]
     end
 
     if move then
@@ -1970,21 +2124,9 @@ function hudMove()
         for i = 1, 8 do
             if not selected[i] then selected[i] = {} end
             if i >= 1 and i <= 5 then
-                local value
-                if i == 1 then
-                    value = healthValues[i]
-                elseif i == 2 then
-                    value = armorValues[i]
-                elseif i == 3 then
-                    value = sprintValues[i]
-                elseif i == 4 then
-                    value = vehicleValues[i]
-                elseif i == 5 then
-                    value = breathValues[i]
-                end
-                local width_text = renderGetFontDrawTextLength(assets.fontId[i][1], value or "")
+                local width_text = renderGetFontDrawTextLength(assets.fontId[i][1], valueTables[i][1] or "")
                 local height_text = renderGetFontDrawHeight(assets.fontId[i][1])
-                selected[i][2] = handleHudElement(i, 2, width_text, height_text, hud.offx[i][2], hud.offy[i][2], alignText(assets.fontId[i][1], value or "", hud.alignfont[i][1]), selected[i][2])
+                selected[i][2] = handleHudElement(i, 2, width_text, height_text, hud.offx[i][2], hud.offy[i][2], alignText(assets.fontId[i][1], valueTables[i][1] or "", hud.alignfont[i][1]), selected[i][2])
                 selected[i][1] = handleHudElement(i, 1, hud.sizex[i], hud.sizey[i], hud.offx[i][1] + hud.border[i], hud.offy[i][1] + hud.border[i], 0, selected[i][1])
             elseif i == 6 then
                 local width_clip = renderGetFontDrawTextLength(assets.fontId[i][1], weaponValues[2] or "")
@@ -2121,10 +2263,14 @@ local function freeAllocatedPointers()
 end
 
 function changeRadarPosAndSize(posX, posY, sizeX, sizeY)
-    if (posX == radarConfig.posX) and (posY == radarConfig.posY) and (sizeX == radarConfig.sizeX) and (sizeY == radarConfig.sizeY) then
+    if getMoonloaderVersion() <= 26 then
         return
     end
 
+    if (posX == radarConfig.posX) and (posY == radarConfig.posY) and (sizeX == radarConfig.sizeX) and (sizeY == radarConfig.sizeY) then
+        return
+    end
+    
     freeAllocatedPointers()
 
     local addresses = {
@@ -2179,6 +2325,32 @@ function setRadarCompass(bool)
 end
 
 -- Value Functions
+function getWeaponIconTexture(nWeaponModelId)
+    local pTexture = ffi.new("RwTexDictionary*");
+    local pModelInfo = ffi.new("CBaseModelInfo*");
+    local pWeaponInfo = CWeaponInfo__GetWeaponInfo(nWeaponModelId, 1);
+    if (pWeaponInfo.dwModelId1 > 0) then
+        pModelInfo = ffi.cast("CBaseModelInfo**", 0xA9B0C8)[pWeaponInfo.dwModelId1];
+        local nTxdIndex = pModelInfo.m_wTxdIndex;
+        local pTxdPool = ffi.cast("CPool**", 0xC8800C)[0];
+        if ffi.cast("uint8_t", pTxdPool.m_byteMap + nTxdIndex) >= 0 then
+            pTexture = pTxdPool.m_pObjects[nTxdIndex].m_pRwDictionary;
+        end
+        if pTexture ~= nil then
+            local nAppended = CKeyGen__AppendStringToKey(pModelInfo.m_dwKey, ffi.cast("char*", "ICON"));
+            local texture = RwTexDictionaryFindHashNamedTexture(pTexture, nAppended);
+            if texture ~= nil then
+                return texture.raster.texture_ptr
+            else
+            end
+        end
+    else
+        local fistSprite = ffi.cast("CSprite2d*", 0xBAB1FC)[0];
+        return fistSprite.m_pTexture.raster.texture_ptr
+    end
+    return nil;
+end
+
 function updateSprintStatus()
     local currentTime = os.clock()
     if isButtonPressed(h, gkeys.player.SPRINT) then
@@ -2213,7 +2385,7 @@ function getVehicleName(modelId)
     return getGxtText(getNameOfVehicleModel(modelId))
 end
 
-function getZoneName(x, y , z)
+function getZoneName(x, y, z)
 	return getGxtText(getNameOfZone(x, y, z))
 end
 
